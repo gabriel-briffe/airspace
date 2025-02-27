@@ -1,0 +1,208 @@
+from bs4 import BeautifulSoup
+
+# Load eaip_selected_tables.html
+with open("eaip_selected_tables.html", "r", encoding="utf-8") as f:
+    soup = BeautifulSoup(f, "html.parser")
+
+
+
+
+def process_table_0(container):
+    # Update table number
+    h3 = container.find("h3")
+    if h3:
+        h3.string = "Table number: 0"
+    
+    # Track previous non-name row's parsed coordinates
+    prev_parsed_coords = None
+    
+    # Process <tr> rows
+    all_rows = container.select(".eaip-row")
+    for i, tr in enumerate(all_rows):
+        # Check if this is a name row (has "strong" in any <td> or <th>)
+        name_td = tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", []))
+        if name_td:
+            # Extract raw text for name row, ignoring <span> structure
+            raw_text = " ".join(name_td.stripped_strings)
+            name_td.clear()
+            name_td.string = raw_text
+            tr["class"] = tr.get("class", []) + ["highlighted"]
+        else:
+            # Content row: must have 5 cells
+            tds = tr.find_all("td")
+            if len(tds) == 5:
+                # First cell: Highlight spans in yellow, extract span content as (lat, lon) pairs or "Frontière"
+                first_cell = tds[0]
+                spans = first_cell.find_all("span")
+                for span in spans:
+                    span["class"] = span.get("class", []) + ["highlight-span"]
+                span_texts = [span.get_text(strip=True) for span in spans]
+                
+                # Check if first cell is empty (no spans or text)
+                if not span_texts and not first_cell.get_text(strip=True):
+                    # Use previous non-name row's parsed coordinates if available and previous row is not a name row
+                    if prev_parsed_coords and i > 0:
+                        prev_tr = all_rows[i - 1]
+                        if not prev_tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", [])):
+                            array_str = prev_parsed_coords
+                        else:
+                            array_str = "[]"
+                    else:
+                        array_str = "[]"
+                else:
+                    # Build array with (lat, lon) tuples or standalone "Frontière" entries
+                    coord_array = []
+                    j = 0
+                    while j < len(span_texts):
+                        text = span_texts[j]
+                        if "Frontière" in text:
+                            coord_array.append(f'"{text}"')
+                            j += 1
+                        else:
+                            if j + 1 < len(span_texts):
+                                lat = text
+                                lon = span_texts[j + 1]
+                                coord_array.append(f'("{lat}", "{lon}")')
+                                j += 2
+                            else:
+                                j += 1
+                    array_str = "[" + ", ".join(coord_array) + "]"
+                
+                # Create new parsed row with eaip-row class for consistent styling
+                new_tr = soup.new_tag("tr")
+                new_tr["class"] = ["eaip-row", "parsed-row"]
+                
+                # First cell: Array with (lat, lon) pairs and "Frontière" entries or copied coords
+                new_td = soup.new_tag("td")
+                new_td.string = array_str
+                new_tr.append(new_td)
+                
+                # Remaining cells: Raw text from original <td>
+                for td in tds[1:]:
+                    raw_text = " ".join(td.stripped_strings)
+                    new_td = soup.new_tag("td")
+                    new_td.string = raw_text
+                    new_tr.append(new_td)
+                
+                # Insert new row after the content row
+                tr.insert_after(new_tr)
+                
+                # Update previous parsed coordinates
+                prev_parsed_coords = array_str
+    
+    return container
+
+
+
+# Define placeholder functions for other tables (to be implemented later)
+def process_table_1(container): return container
+def process_table_2(container): return container
+def process_table_3(container): return container
+def process_table_4(container): return container
+def process_table_5(container): return container
+# Add more as needed based on your selected tables count
+
+# Map table numbers to processing functions
+table_processors = {
+    0: process_table_0,
+    1: process_table_1,
+    2: process_table_2,
+    3: process_table_3,
+    4: process_table_4,
+    5: process_table_5,
+    # Extend this as needed
+}
+
+# Extract all table containers
+containers = soup.select(".table-container")
+
+# Process only Table 0 for now
+processed_containers = []
+for container in containers:
+    h3 = container.find("h3")
+    if h3 and h3.text == "Table number: 0":
+        processed_container = process_table_0(container)
+        processed_containers.append(processed_container)
+        break  # Stop after Table 0 for this stage
+
+# Create new HTML with only Table 0, keeping collapsible functionality
+html_content = "<!DOCTYPE html>\n<html>\n<head>\n"
+html_content += "<meta charset=\"UTF-8\">\n"
+html_content += "<title>eAIP Selected Tables Stage 1</title>\n"
+
+# CSS with collapsible functionality and highlighting
+html_content += "<style>\n"
+html_content += "  body { font-family: Arial, sans-serif; }\n"
+html_content += "  .eaip-table { display: block; margin-bottom: 20px; width: 100%; transition: max-height 0.3s ease; }\n"
+html_content += "  .eaip-row { display: flex; max-height: 80px; overflow: hidden; transition: max-height 0.3s ease; cursor: pointer; }\n"
+html_content += "  .eaip-row.expanded { max-height: none; }\n"
+html_content += "  .eaip-table.collapsed { max-height: 80px; overflow: hidden; }\n"
+html_content += "  .eaip-row td, .eaip-row th { flex: 1; padding: 5px; border: 1px solid black; box-sizing: border-box; }\n"
+html_content += "  .table-container { position: relative; margin: 20px; }\n"
+html_content += "  .table-buttons { position: absolute; top: 0; right: 0; display: flex; gap: 5px; }\n"
+html_content += "  .table-buttons button { padding: 5px 10px; cursor: pointer; }\n"
+html_content += "  .eaip-row.highlighted { background-color: #90ee90; }\n"  # Light green for highlighted rows
+html_content += "  .parsed-row { font-size: 12px; font-family: arial; }\n"  
+html_content += "  .highlight-span { background-color: yellow; }\n"
+html_content += "  h3 { font-size: 1.2em; margin-bottom: 10px; }\n"
+html_content += "</style>\n"
+
+# JavaScript for collapsing/expanding rows and tables
+html_content += "<script>\n"
+html_content += "  document.addEventListener('DOMContentLoaded', function() {\n"
+html_content += "    var rows = document.querySelectorAll('.eaip-row');\n"
+html_content += "    var tables = document.querySelectorAll('.eaip-table');\n"
+html_content += "    // Row-level toggling\n"
+html_content += "    rows.forEach(function(row) {\n"
+html_content += "      row.addEventListener('click', function() {\n"
+html_content += "        this.classList.toggle('expanded');\n"
+html_content += "      });\n"
+html_content += "    });\n"
+html_content += "    // Per-table expand all rows\n"
+html_content += "    document.querySelectorAll('.expand-rows-btn').forEach(function(button) {\n"
+html_content += "      button.addEventListener('click', function() {\n"
+html_content += "        var table = this.closest('.table-container').querySelector('.eaip-table');\n"
+html_content += "        table.querySelectorAll('.eaip-row').forEach(function(row) {\n"
+html_content += "          row.classList.add('expanded');\n"
+html_content += "        });\n"
+html_content += "      });\n"
+html_content += "    });\n"
+html_content += "    // Per-table collapse all rows\n"
+html_content += "    document.querySelectorAll('.collapse-rows-btn').forEach(function(button) {\n"
+html_content += "      button.addEventListener('click', function() {\n"
+html_content += "        var table = this.closest('.table-container').querySelector('.eaip-table');\n"
+html_content += "        table.querySelectorAll('.eaip-row').forEach(function(row) {\n"
+html_content += "          row.classList.remove('expanded');\n"
+html_content += "        });\n"
+html_content += "      });\n"
+html_content += "    });\n"
+html_content += "    // Per-table collapse table\n"
+html_content += "    document.querySelectorAll('.collapse-table-btn').forEach(function(button) {\n"
+html_content += "      button.addEventListener('click', function() {\n"
+html_content += "        var table = this.closest('.table-container').querySelector('.eaip-table');\n"
+html_content += "        table.classList.add('collapsed');\n"
+html_content += "      });\n"
+html_content += "    });\n"
+html_content += "    // Per-table expand table\n"
+html_content += "    document.querySelectorAll('.expand-table-btn').forEach(function(button) {\n"
+html_content += "      button.addEventListener('click', function() {\n"
+html_content += "        var table = this.closest('.table-container').querySelector('.eaip-table');\n"
+html_content += "        table.classList.remove('collapsed');\n"
+html_content += "      });\n"
+html_content += "    });\n"
+html_content += "  });\n"
+html_content += "</script>\n"
+
+html_content += "</head>\n<body>\n"
+
+# Add only Table 0
+for container in processed_containers:
+    html_content += str(container) + "\n"
+
+html_content += "</body>\n</html>"
+
+# Save to new file
+output_file = "eaip_selected_tables_stage1.html"
+with open(output_file, "w", encoding="utf-8") as f:
+    f.write(html_content)
+print(f"Saved Table 0 to '{output_file}'")
