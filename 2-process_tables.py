@@ -868,7 +868,7 @@ def process_table_10(container):
 
 
     # Get all rows
-    all_rows = container.select(".eaip-row")
+    all_rows = [row for row in container.select(".eaip-row") if row.find("th") is None]
     # Process rows in pairs: even row holds info, odd row holds content
     i = 0
     while i < len(all_rows) - 1:
@@ -946,6 +946,80 @@ def process_table_10(container):
 
     return container
 
+def process_table_11(container):
+    # Update table number
+    h3 = container.find("h3")
+    if h3:
+        h3.string = "Table number: 11"
+
+
+    # Get all rows
+    all_rows = container.select(".eaip-row")
+    # Process rows in pairs: even row holds info, odd row holds content
+    i = 1
+    while i < len(all_rows) - 1:
+        name_row = all_rows[i]
+        content_row = all_rows[i+1]
+
+        name_tds = name_row.find_all("td")
+        print(len(name_tds))
+        if len(name_tds) == 0:
+            print("No name row")
+            i += 2
+            continue
+        # name is content of cell 0 and cell 1
+        name_text = " ".join(name_tds[0].stripped_strings)
+        print(name_text)
+        all_rows[i]["class"] = all_rows[i].get("class", []) + ["highlighted"]
+        # Create a new parsed name row
+        name_tr = soup.new_tag("tr")
+        name_tr["class"] = ["eaip-row", "parsed-name"]
+        name_td = soup.new_tag("td")
+        name_td.string = name_text
+        name_tr.append(name_td)
+        name_row.insert_after(name_tr)
+        
+
+        # Process content row
+        content_tds = content_row.find_all("td")
+        # if len(content_tds) < 4:
+        #     i += 2
+        #     continue
+
+        # First cell: coordinates parsing as in other tables
+        coord_text = content_tds[0].get_text(" ", strip=True)
+        if coord_text:
+            parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in coord_text.split(" - ") if part.strip()]
+            array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
+        else:
+            array_str = "[]"
+
+        # Create new parsed row
+        new_tr = soup.new_tag("tr")
+        new_tr["class"] = ["eaip-row", "parsed-row"]
+
+        new_td = soup.new_tag("td")
+        new_td.string = array_str
+        new_tr.append(new_td)
+
+        new_td = soup.new_tag("td")
+        new_td.string = content_tds[1].get_text(" ", strip=True)
+        new_tr.append(new_td)
+
+        new_td = soup.new_tag("td")
+        new_td.string = content_tds[2].get_text(" ", strip=True)
+        new_tr.append(new_td)
+
+        # Insert the new parsed row after the content row
+        content_row.insert_after(new_tr)
+
+        i += 2
+
+    return container
+
+
+
+
 
 # Add more as needed based on your selected tables count
 # Map table numbers to processing functions
@@ -960,8 +1034,8 @@ table_processors = {
     # 7: process_table_7,
     # 8: process_table_8,
     # 9: process_table_9,
-    10: process_table_10,
-    # 11: process_table_11,
+    # 10: process_table_10,
+    11: process_table_11,
 
     # Extend this as needed
 }
