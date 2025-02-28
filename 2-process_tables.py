@@ -181,13 +181,13 @@ def process_table_2(container):
             coord_match = re.search(r"\d{2}°\d{2}(?:'|’)\d{2}(?:\"|”)[NSEW]", full_text)
 
             # Debugging prints
-            print(f"Raw text: '{full_text}'")
+            # print(f"Raw text: '{full_text}'")
             if coord_match:
                 coord_start = coord_match.start()
-                print(f"Found regex at: {coord_start}")
+                # print(f"Found regex at: {coord_start}")
                 if coord_start > 0:  # Text before coordinate exists
                     found_name = full_text[:coord_start].strip()
-                    print(f"Found name: '{found_name}'")
+                    # print(f"Found name: '{found_name}'")
                     # Create parsed name row just before the current row
                     name_tr = soup.new_tag("tr")
                     name_tr["class"] = ["eaip-row", "parsed-name"]
@@ -201,7 +201,8 @@ def process_table_2(container):
                     first_td.clear()
                     first_td.string = coord_text
             else:
-                print("No coordinate pattern found")
+                # print("No coordinate pattern found")
+                pass
 
     # Track previous non-name row's parsed coordinates
     prev_parsed_coords = None
@@ -962,14 +963,14 @@ def process_table_11(container):
         content_row = all_rows[i+1]
 
         name_tds = name_row.find_all("td")
-        print(len(name_tds))
+        # print(len(name_tds))
         if len(name_tds) == 0:
-            print("No name row")
+            # print("No name row")
             i += 2
             continue
         # name is content of cell 0 and cell 1
         name_text = " ".join(name_tds[0].stripped_strings)
-        print(name_text)
+        # print(name_text)
         all_rows[i]["class"] = all_rows[i].get("class", []) + ["highlighted"]
         # Create a new parsed name row
         name_tr = soup.new_tag("tr")
@@ -1024,17 +1025,17 @@ def process_table_11(container):
 # Add more as needed based on your selected tables count
 # Map table numbers to processing functions
 table_processors = {
-    # 0: process_table_0,
-    # 1: process_table_1,
-    # 2: process_table_2,
-    # 3: process_table_3,
-    # 4: process_table_4,
-    # 5: process_table_5,
-    # 6: process_table_6,
-    # 7: process_table_7,
-    # 8: process_table_8,
-    # 9: process_table_9,
-    # 10: process_table_10,
+    0: process_table_0,
+    1: process_table_1,
+    2: process_table_2,
+    3: process_table_3,
+    4: process_table_4,
+    5: process_table_5,
+    6: process_table_6,
+    7: process_table_7,
+    8: process_table_8,
+    9: process_table_9,
+    10: process_table_10,
     11: process_table_11,
 
     # Extend this as needed
