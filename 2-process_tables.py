@@ -5,22 +5,21 @@ with open("eaip_selected_tables.html", "r", encoding="utf-8") as f:
     soup = BeautifulSoup(f, "html.parser")
 
 
-
-
 def process_table_0(container):
     # Update table number
     h3 = container.find("h3")
     if h3:
         h3.string = "Table number: 0"
-    
+
     # Track previous non-name row's parsed coordinates
     prev_parsed_coords = None
-    
+
     # Process <tr> rows
     all_rows = container.select(".eaip-row")
     for i, tr in enumerate(all_rows):
         # Check if this is a name row (has "strong" in any <td> or <th>)
-        name_td = tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", []))
+        name_td = tr.find(lambda tag: tag.name in [
+                          "td", "th"] and "strong" in tag.get("class", []))
         if name_td:
             # Extract raw text for name row, ignoring <span> structure
             raw_text = " ".join(name_td.stripped_strings)
@@ -31,15 +30,10 @@ def process_table_0(container):
             # Content row: must have 5 cells
             tds = tr.find_all("td")
             if len(tds) == 5:
-                # First cell: Highlight spans in yellow, extract span content as (lat, lon) pairs or "Frontière"
+                # First cell: Extract raw text from first cell and split by ' - '
                 first_cell = tds[0]
-                spans = first_cell.find_all("span")
-                for span in spans:
-                    span["class"] = span.get("class", []) + ["highlight-span"]
-                span_texts = [span.get_text(strip=True) for span in spans]
-                
-                # Check if first cell is empty (no spans or text)
-                if not span_texts and not first_cell.get_text(strip=True):
+                cell_text = first_cell.get_text(" ", strip=True)
+                if not cell_text:
                     # Use previous non-name row's parsed coordinates if available and previous row is not a name row
                     if prev_parsed_coords and i > 0:
                         prev_tr = all_rows[i - 1]
@@ -50,48 +44,34 @@ def process_table_0(container):
                     else:
                         array_str = "[]"
                 else:
-                    # Build array with (lat, lon) tuples or standalone "Frontière" entries
-                    coord_array = []
-                    j = 0
-                    while j < len(span_texts):
-                        text = span_texts[j]
-                        if "Frontière" in text:
-                            coord_array.append(f'"{text}"')
-                            j += 1
-                        else:
-                            if j + 1 < len(span_texts):
-                                lat = text
-                                lon = span_texts[j + 1]
-                                coord_array.append(f'("{lat}", "{lon}")')
-                                j += 2
-                            else:
-                                j += 1
-                    array_str = "[" + ", ".join(coord_array) + "]"
-                
+                    parts = cell_text.split(" - ")
+                    parts = [part for part in parts if part.strip()]
+                    array_str = "[" + \
+                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+
                 # Create new parsed row with eaip-row class for consistent styling
                 new_tr = soup.new_tag("tr")
                 new_tr["class"] = ["eaip-row", "parsed-row"]
-                
+
                 # First cell: Array with (lat, lon) pairs and "Frontière" entries or copied coords
                 new_td = soup.new_tag("td")
                 new_td.string = array_str
                 new_tr.append(new_td)
-                
+
                 # Remaining cells: Raw text from original <td>
                 for td in tds[1:]:
                     raw_text = " ".join(td.stripped_strings)
                     new_td = soup.new_tag("td")
                     new_td.string = raw_text
                     new_tr.append(new_td)
-                
+
                 # Insert new row after the content row
                 tr.insert_after(new_tr)
-                
+
                 # Update previous parsed coordinates
                 prev_parsed_coords = array_str
-    
-    return container
 
+    return container
 
 
 def process_table_1(container):
@@ -99,21 +79,22 @@ def process_table_1(container):
     h3 = container.find("h3")
     if h3:
         h3.string = "Table number: 1"
-    
+
     # Track previous non-name row's parsed coordinates
     prev_parsed_coords = None
-    
+
     # Process <tr> rows
     all_rows = container.select(".eaip-row")
     for i, tr in enumerate(all_rows):
         # Check if this is a name row (has "strong" in any <td> or <th>)
-        name_td = tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", []))
+        name_td = tr.find(lambda tag: tag.name in [
+                          "td", "th"] and "strong" in tag.get("class", []))
         if name_td:
             # Extract raw text for name row
             raw_text = " ".join(name_td.stripped_strings)
             name_td.clear()
             name_td.string = raw_text
-            
+
             # Check if this is the row to reject
             if raw_text == "LTA FRANCE partie 2":
                 tr["class"] = tr.get("class", []) + ["rejected"]
@@ -127,15 +108,10 @@ def process_table_1(container):
             # Content row: must have 5 cells and not rejected
             tds = tr.find_all("td")
             if len(tds) == 5 and "rejected" not in tr.get("class", []):
-                # First cell: Highlight spans in yellow, extract span content as (lat, lon) pairs or "Frontière"
+                # First cell: Extract raw text from first cell and split by ' - '
                 first_cell = tds[0]
-                spans = first_cell.find_all("span")
-                for span in spans:
-                    span["class"] = span.get("class", []) + ["highlight-span"]
-                span_texts = [span.get_text(strip=True) for span in spans]
-                
-                # Check if first cell is empty (no spans or text)
-                if not span_texts and not first_cell.get_text(strip=True):
+                cell_text = first_cell.get_text(" ", strip=True)
+                if not cell_text:
                     # Use previous non-name row's parsed coordinates if available and previous row is not a name row
                     if prev_parsed_coords and i > 0:
                         prev_tr = all_rows[i - 1]
@@ -146,54 +122,42 @@ def process_table_1(container):
                     else:
                         array_str = "[]"
                 else:
-                    # Build array with (lat, lon) tuples or standalone "Frontière" entries
-                    coord_array = []
-                    j = 0
-                    while j < len(span_texts):
-                        text = span_texts[j]
-                        if "Frontière" in text:
-                            coord_array.append(f'"{text}"')
-                            j += 1
-                        else:
-                            if j + 1 < len(span_texts):
-                                lat = text
-                                lon = span_texts[j + 1]
-                                coord_array.append(f'("{lat}", "{lon}")')
-                                j += 2
-                            else:
-                                j += 1
-                    array_str = "[" + ", ".join(coord_array) + "]"
-                
+                    parts = cell_text.split(" - ")
+                    parts = [part for part in parts if part.strip()]
+                    array_str = "[" + \
+                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+
                 # Create new parsed row with eaip-row class
                 new_tr = soup.new_tag("tr")
                 new_tr["class"] = ["eaip-row", "parsed-row"]
-                
+
                 # First cell: Array with (lat, lon) pairs and "Frontière" entries or copied coords
                 new_td = soup.new_tag("td")
                 new_td.string = array_str
                 new_tr.append(new_td)
-                
+
                 # Remaining cells: Raw text from original <td>
                 for td in tds[1:]:
                     raw_text = " ".join(td.stripped_strings)
                     new_td = soup.new_tag("td")
                     new_td.string = raw_text
                     new_tr.append(new_td)
-                
+
                 # Insert new row after the content row
                 tr.insert_after(new_tr)
-                
+
                 # Update previous parsed coordinates
                 prev_parsed_coords = array_str
 
     return container
+
 
 def process_table_2(container):
     # Update table number
     h3 = container.find("h3")
     if h3:
         h3.string = "Table number: 2"
-    
+
     import re
     # Pre-pass: Create name rows for 5-cell rows with text before coordinates
     all_rows = container.select(".eaip-row")
@@ -203,7 +167,7 @@ def process_table_2(container):
             first_td = tds[0]
             full_text = " ".join(first_td.stripped_strings)
             coord_match = re.search(r"\d{2}°\d{2}'\d{2}\"[NSEW]", full_text)
-            
+
             # Debugging prints
             print(f"Raw text: '{full_text}'")
             if coord_match:
@@ -222,23 +186,23 @@ def process_table_2(container):
                         empty_td = soup.new_tag("td")
                         name_tr.append(empty_td)
                     tr.insert_before(name_tr)
-                    
+
                     # Remove name from first cell, keep only coordinate text
                     coord_text = full_text[coord_start:]
                     first_td.clear()
                     first_td.string = coord_text
             else:
                 print("No coordinate pattern found")
-    
+
     # Track previous non-name row's parsed coordinates
     prev_parsed_coords = None
     ta_info = "33"  # Default sentinel value
-    
+
     # Main pass: Process <tr> rows
     all_rows = container.select(".eaip-row")  # Refresh after insertions
     for i, tr in enumerate(all_rows):
         tds = tr.find_all("td")
-        
+
         # Handle 2-cell rows
         if len(tds) == 2:
             second_cell_text = " ".join(tds[1].stripped_strings)
@@ -248,17 +212,13 @@ def process_table_2(container):
                 ta_info = "33"
             tr["class"] = tr.get("class", []) + ["rejected"]
             continue
-        
+
         # Process 5-cell rows (content)
         if len(tds) == 5 and "parsed-name" not in tr.get("class", []):
             first_cell = tds[0]
-            spans = first_cell.find_all("span")
-            for span in spans:
-                span["class"] = span.get("class", []) + ["highlight-span"]
-            span_texts = [span.get_text(strip=True) for span in spans]
-            
-            # Check if first cell is empty (no spans or text)
-            if not span_texts and not first_cell.get_text(strip=True):
+            cell_text = first_cell.get_text(" ", strip=True)
+            if not cell_text:
+                # Use previous non-name row's parsed coordinates if available and previous row is not a name row
                 if prev_parsed_coords and i > 0:
                     prev_tr = all_rows[i - 1]
                     if len(prev_tr.find_all("td")) == 5 and "parsed-name" not in prev_tr.get("class", []):
@@ -268,37 +228,9 @@ def process_table_2(container):
                 else:
                     array_str = "[]"
             else:
-                if span_texts:
-                    # Build array with (lat, lon) tuples or standalone "Frontière" entries from span texts
-                    coord_array = []
-                    j = 0
-                    while j < len(span_texts):
-                        text = span_texts[j]
-                        if "Frontière" in text:
-                            coord_array.append(f'"{text}"')
-                            j += 1
-                        else:
-                            if j + 1 < len(span_texts):
-                                lat = text
-                                lon = span_texts[j + 1]
-                                coord_array.append(f'("{lat}", "{lon}")')
-                                j += 2
-                            else:
-                                j += 1
-                    array_str = "[" + ", ".join(coord_array) + "]"
-                else:
-                    # New logic: parse coordinate from full text when no span elements present
-                    cell_text = first_cell.get_text(strip=True)
-                    coord_array = []
-                    for part in re.split(r' - ', cell_text):
-                        if "Frontière" in part:
-                            coord_array.append(f'"{part}"')
-                        else:
-                            pieces = [p.strip() for p in part.split(",")]
-                            if len(pieces) >= 2:
-                                lat, lon = pieces[0], pieces[1]
-                                coord_array.append(f'("{lat}", "{lon}")')
-                    array_str = "[" + ", ".join(coord_array) + "]"
+                parts = cell_text.split(" - ")
+                parts = [part for part in parts if part.strip()]
+                array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
             
             # Create new parsed row with eaip-row class
             new_tr = soup.new_tag("tr")
@@ -328,9 +260,77 @@ def process_table_2(container):
     return container
 
 
+def process_table_3(container):
+    # Update table number
+    h3 = container.find("h3")
+    if h3:
+        h3.string = "Table number: 3"
+    
+    # Track previous non-name row's parsed coordinates
+    prev_parsed_coords = None
+    
+    # Process <tr> rows
+    all_rows = container.select(".eaip-row")
+    for i, tr in enumerate(all_rows):
+        # Check if this is a name row (has "strong" in any <td> or <th>)
+        name_td = tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", []))
+        if name_td:
+            # Extract raw text for name row, ignoring <span> structure
+            raw_text = " ".join(name_td.stripped_strings)
+            name_td.clear()
+            name_td.string = raw_text
+            tr["class"] = tr.get("class", []) + ["highlighted"]
+        else:
+            # Content row: must have 5 cells
+            tds = tr.find_all("td")
+            if len(tds) == 5:
+                # First cell: Extract raw text from first cell and split by ' - '
+                first_cell = tds[0]
+                cell_text = first_cell.get_text(" ", strip=True)
+                if not cell_text:
+                    # Use previous non-name row's parsed coordinates if available and previous row is not a name row
+                    if prev_parsed_coords and i > 0:
+                        prev_tr = all_rows[i - 1]
+                        if not prev_tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", [])):
+                            array_str = prev_parsed_coords
+                        else:
+                            array_str = "[]"
+                    else:
+                        array_str = "[]"
+                else:
+                    parts = cell_text.split(" - ")
+                    parts = [part for part in parts if part.strip()]
+                    array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
+                
+                # Create new parsed row with eaip-row class for consistent styling
+                new_tr = soup.new_tag("tr")
+                new_tr["class"] = ["eaip-row", "parsed-row"]
+                
+                # First cell: Array with (lat, lon) pairs and "Frontière" entries or copied coords
+                new_td = soup.new_tag("td")
+                new_td.string = array_str
+                new_tr.append(new_td)
+                
+                # Remaining cells: Raw text from original <td>
+                for td in tds[1:]:
+                    raw_text = " ".join(td.stripped_strings)
+                    new_td = soup.new_tag("td")
+                    new_td.string = raw_text
+                    new_tr.append(new_td)
+                
+                # Insert new row after the content row
+                tr.insert_after(new_tr)
+                
+                # Update previous parsed coordinates
+                prev_parsed_coords = array_str
+    
+    return container
 
 
-def process_table_3(container): return container
+
+
+
+
 def process_table_4(container): return container
 def process_table_5(container): return container
 # Add more as needed based on your selected tables count
@@ -341,22 +341,32 @@ table_processors = {
     1: process_table_1,
     2: process_table_2,
     3: process_table_3,
-    4: process_table_4,
-    5: process_table_5,
+    # 4: process_table_4,
+    # 5: process_table_5,
     # Extend this as needed
 }
 
 # Extract all table containers
 containers = soup.select(".table-container")
 
-# Process only Table 0 for now
+# Process all containers (each table has one container) and process using the appropriate table processor
 processed_containers = []
 for container in containers:
     h3 = container.find("h3")
-    if h3 and h3.text == "Table number: 2":
-        processed_container = process_table_2(container)
-        processed_containers.append(processed_container)
-        break  # Stop after Table 0 for this stage
+    if h3:
+        # Assume h3.text format is 'Table number: X'
+        try:
+            table_number = int(h3.text.split(":")[1].strip())
+        except Exception:
+            table_number = None
+        if table_number is not None and table_number in table_processors:
+            processor = table_processors[table_number]
+            processed_container = processor(container)
+            processed_containers.append(processed_container)
+        else:
+            print(f"WARNING: Table number {table_number} not found in table_processors - Table will be missing")
+    else:
+        processed_containers.append(container)  # Append container even without h3
 
 # Create new HTML with only Table 0, keeping collapsible functionality
 html_content = "<!DOCTYPE html>\n<html>\n<head>\n"
