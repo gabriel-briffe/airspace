@@ -479,14 +479,25 @@ for container_index, container in enumerate(soup.select('.table-container')):
                 # If already contains 'cercle de' and 'de rayon centré sur', skip replacement
                 if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
                     pass
-                else:
+                elif any(x in current_name.lower() for x in [" para "]):
                     # Use regex to find a single lat@lon coordinate pair within coords[0]
                     match_list = re.findall(
                         r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        # print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
                         coords = [
                             f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
+                elif any(x in current_name.lower() for x in [" treuillage "]):
+                    # Use regex to find a single lat@lon coordinate pair within coords[0]
+                    match_list = re.findall(
+                        r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
+                    if len(match_list) == 1:
+                        print(f"Warning: using cercle 600m de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        coords = [
+                            f"cercle de 600m de rayon centré sur {match_list[0]}"]
+                else:
+                    # print(f"discarding {current_name}")
+                    continue
             # Process only if valid
             polygon_points = process_coordinates(coords)
             if polygon_points is None:
@@ -509,8 +520,8 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     "remarks": remarks
                 }
             }
-            if "CTR" in current_name:
-                features.append(feature)
+            # if "CTR" in current_name:
+            features.append(feature)
 
 # Create FeatureCollection
 geojson = {
