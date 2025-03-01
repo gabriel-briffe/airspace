@@ -186,8 +186,8 @@ def process_coordinates(all_coords):
             # Otherwise, expect a single coordinate pair in the token
             parts = [p.strip() for p in token.split("@")] 
             if len(parts) != 2:
-                if not any(x in token for x in ["Frontière", "atlantique"]):
-                # if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
+                # if not any(x in token for x in ["Frontière", "atlantique"]):
+                if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
                     print(f"Invalid coordinate pair format: {all_coords}")
                 continue
             lat_str, lon_str = parts[0], parts[1]
@@ -227,7 +227,7 @@ with open(input_file, 'r', encoding='utf-8') as f:
 features = []
 
 # For every table container, process rows in document order to associate parsed rows with the previous parsed name row
-for container in soup.select('.table-container'):
+for container_index, container in enumerate(soup.select('.table-container')):
     current_name = None
     # Loop over all rows in order within the container
     for tr in container.find_all('tr'):
@@ -238,11 +238,80 @@ for container in soup.select('.table-container'):
             if td:
                 current_name = td.get_text(strip=True)
         elif 'parsed-row' in classes:
-            # Get the first <td> which should contain the coordinates as a JSON array string
-            td = tr.find('td')
-            if not td:
+            # Get all <td> elements, first cell contains coordinates, second cell (if container index 0) contains icaoClass
+            tds = tr.find_all('td')
+            if not tds:
                 continue
-            cell_text = td.get_text(strip=True)
+            cell_text = tds[0].get_text(strip=True)
+            
+            if container_index in [0, 1, 2, 3]:
+                icao_class = tds[1].get_text(strip=True)
+                altitude_text = tds[2].get_text(strip=True)
+                alt_parts = altitude_text.split("------------")
+                upperAltitude = alt_parts[0].strip()
+                lowerAltitude = alt_parts[1].strip()
+
+                radio = tds[3].get_text(strip=True)
+                remarks = tds[4].get_text(strip=True)
+
+            elif container_index == 4:
+                icao_class = ""  
+                altitude_text = tds[1].get_text(strip=True)
+                alt_parts = altitude_text.split("------------")
+                upperAltitude = alt_parts[0].strip()
+                lowerAltitude = alt_parts[1].strip()
+
+                radio = tds[2].get_text(strip=True)
+                remarks = tds[3].get_text(strip=True)
+
+            elif container_index in [5, 6]:
+                icao_class = ""
+                altitude_text = tds[1].get_text(strip=True)
+                alt_parts = altitude_text.split("------------")
+                upperAltitude = alt_parts[0].strip()
+                lowerAltitude = alt_parts[1].strip()
+
+                schedule = tds[2].get_text(strip=True)
+                restrictions = tds[3].get_text(strip=True)
+                remarks = tds[4].get_text(strip=True)
+
+            elif container_index == 7:
+                icao_class = ""
+                altitude_text = tds[1].get_text(strip=True)
+                alt_parts = altitude_text.split("------------")
+                upperAltitude = alt_parts[0].strip()
+                lowerAltitude = alt_parts[1].strip()
+
+                restrictions = tds[2].get_text(strip=True)
+            # Added branch for tables index 8 and 9
+            elif container_index in [8, 9]:
+                icao_class = ""
+                altitude_text = tds[1].get_text(strip=True)
+                alt_parts = altitude_text.split("------------")
+                upperAltitude = alt_parts[0].strip()
+                lowerAltitude = alt_parts[1].strip()
+
+                schedule = tds[2].get_text(strip=True)
+                restrictions = tds[3].get_text(strip=True)
+                remarks = tds[4].get_text(strip=True)
+
+            # Added branch for table index 10 with 3 cells: coordinates, altitudes, remarks
+            elif container_index == 10:
+                icao_class = ""
+                altitude_text = tds[1].get_text(strip=True)
+                alt_parts = altitude_text.split("------------")
+                upperAltitude = alt_parts[0].strip()
+                lowerAltitude = alt_parts[1].strip()
+                remarks = tds[2].get_text(strip=True)
+
+            # Added branch for table index 11 with 4 cells: upperAltitude, restrictions, remarks with lowerAltitude set to 'GND'
+            elif container_index == 11:
+                icao_class = ""
+                upperAltitude = tds[1].get_text(strip=True)
+                lowerAltitude = "GND"
+                restrictions = tds[2].get_text(strip=True)
+                remarks = tds[3].get_text(strip=True)
+
             try:
                 # Clean up cell_text by replacing control characters with a single space and compressing multiple spaces
                 clean_text = re.sub(r'[\x00-\x1F]+', ' ', cell_text)
@@ -254,7 +323,7 @@ for container in soup.select('.table-container'):
                 # Skip rows with non-JSON coordinate text
                 continue
             # Inserted check for 'para' in current_name and single coordinate pair using regex
-            if current_name and ' para ' in current_name.lower() and isinstance(coords, list) and len(coords) == 1:
+            if current_name and (any(x in current_name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) and isinstance(coords, list) and len(coords) == 1:
                 # print(coords[0])
                 # If already contains 'cercle de' and 'de rayon centré sur', skip replacement
                 if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
@@ -263,13 +332,13 @@ for container in soup.select('.table-container'):
                     # Use regex to find a single lat@lon coordinate pair within coords[0]
                     match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        # print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
                         coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
             # Process only if valid
             polygon_points = process_coordinates(coords)
             if polygon_points is None:
                 continue
-            # Create a GeoJSON feature with property "name" from current_name
+            # Create a GeoJSON feature with property "name" and appropriate properties based on table index
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -277,7 +346,14 @@ for container in soup.select('.table-container'):
                     "coordinates": [polygon_points]
                 },
                 "properties": {
-                    "name": current_name if current_name else ""
+                    "name": current_name if current_name else "",
+                    "icaoClass": icao_class,
+                    "upperAltitude": upperAltitude,
+                    "lowerAltitude": lowerAltitude,
+                    "radio": (radio if 'radio' in locals() else ""),
+                    "schedule": (schedule if 'schedule' in locals() else ""),
+                    "restrictions": (restrictions if 'restrictions' in locals() else ""),
+                    "remarks": (remarks if 'remarks' in locals() else "")
                 }
             }
             features.append(feature)

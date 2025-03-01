@@ -700,14 +700,24 @@ def process_table_7(container):
 
             # Process remaining cells from original row (tds[1:])
             for j, td in enumerate(tds[1:]):
-                raw_text = " ".join(td.stripped_strings)
                 new_td = soup.new_tag("td")
-                # For the third cell (j==2) and if previous name row text starts with the specified string, prepend the prefix
-                # print(f"prev_name_text: {prev_name_text}, j= {j}")
-                if j == 1 and prev_name_text.startswith("LF-R 213 NORD-EST") and lf_r_prefix:
-                    # print(f"Prepending {lf_r_prefix} to {raw_text}")
+                if j == 0:
+                    # For cell index 1, insert ' ------------ ' just after the first <p> tag
+                    original_html = td.decode_contents()
+                    inner_soup = BeautifulSoup(original_html, "html.parser")
+                    first_p = inner_soup.find("p")
+                    if first_p:
+                        first_p.insert_after(" ------------ ")
+                    else:
+                        first_span = inner_soup.find("span")
+                        if first_span:
+                            first_span.insert_after(" ------------ ")
+                    new_td.append(inner_soup)
+                elif j == 1 and prev_name_text.startswith("LF-R 213 NORD-EST") and lf_r_prefix:
+                    raw_text = " ".join(td.stripped_strings)
                     new_td.string = lf_r_prefix + " " + raw_text if raw_text else lf_r_prefix
                 else:
+                    raw_text = " ".join(td.stripped_strings)
                     new_td.string = raw_text
                 new_tr.append(new_td)
 
@@ -1010,6 +1020,10 @@ def process_table_11(container):
 
         new_td = soup.new_tag("td")
         new_td.string = content_tds[2].get_text(" ", strip=True)
+        new_tr.append(new_td)
+
+        new_td = soup.new_tag("td")
+        new_td.string = content_tds[3].get_text(" ", strip=True)
         new_tr.append(new_td)
 
         # Insert the new parsed row after the content row
