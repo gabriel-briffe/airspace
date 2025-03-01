@@ -186,7 +186,8 @@ def process_coordinates(all_coords):
             # Otherwise, expect a single coordinate pair in the token
             parts = [p.strip() for p in token.split("@")] 
             if len(parts) != 2:
-                if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
+                if not any(x in token for x in ["Frontière", "atlantique"]):
+                # if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
                     print(f"Invalid coordinate pair format: {all_coords}")
                 continue
             lat_str, lon_str = parts[0], parts[1]
@@ -198,8 +199,8 @@ def process_coordinates(all_coords):
                 m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
                 if m_lat and m_lon:
                     # print(f"Warning")
-                    if not any(x in token for x in ["E (","Axe"]):
-                        print(f"Warning: coordinate value in token '{token}' contained extra text; extracting coordinates.")
+                    if not any(x in token for x in ["E (", "Axe"]):
+                        print(f"Warning: coordinate value in token {token} contained extra text; extracting coordinates.")
                     lat_str = m_lat.group(1)
                     lon_str = m_lon.group(1)
                 else:
@@ -243,25 +244,31 @@ for container in soup.select('.table-container'):
                 continue
             cell_text = td.get_text(strip=True)
             try:
-                # Clean up cell_text by removing control characters
-                clean_text = re.sub(r'[\x00-\x1F]+', '', cell_text)
+                # Clean up cell_text by replacing control characters with a single space and compressing multiple spaces
+                clean_text = re.sub(r'[\x00-\x1F]+', ' ', cell_text)
+                clean_text = re.sub(r'\s+', ' ', clean_text).strip()
                 coords = json.loads(clean_text)
             except Exception as e:
                 print(f"Error parsing coordinates: {e}")
                 print(f"Cell text: {cell_text}")
                 # Skip rows with non-JSON coordinate text
                 continue
+            # Inserted check for 'para' in current_name and single coordinate pair using regex
+            if current_name and ' para ' in current_name.lower() and isinstance(coords, list) and len(coords) == 1:
+                # print(coords[0])
+                # If already contains 'cercle de' and 'de rayon centré sur', skip replacement
+                if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
+                    pass
+                else:
+                    # Use regex to find a single lat@lon coordinate pair within coords[0]
+                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
+                    if len(match_list) == 1:
+                        print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
             # Process only if valid
             polygon_points = process_coordinates(coords)
             if polygon_points is None:
                 continue
-            # Inserted check for 'para' in current_name and single coordinate pair using regex
-            if current_name and ' para ' in current_name.lower() and isinstance(coords, list) and len(coords) == 1:
-                # Use regex to find a single lat@lon coordinate pair within coords[0]
-                match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
-                if len(match_list) == 1:
-                    print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
-                    coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
             # Create a GeoJSON feature with property "name" from current_name
             feature = {
                 "type": "Feature",
