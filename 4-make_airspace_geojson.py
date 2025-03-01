@@ -295,6 +295,8 @@ def process_coordinates(all_coords):
                 final_points.extend(circle_points[:-1])
             else:
                 print(f"Circle processing failed for token: {token}")
+        elif "frontière" in lower_token:
+            print(f"Frontière: {token}")
         else:
             # Check if the token contains multiple coordinate pairs using regex
             pairs = re.findall(
@@ -340,8 +342,8 @@ def process_coordinates(all_coords):
                 if m_lat and m_lon:
                     # print(f"Warning")
                     if not any(x in token for x in ["E (", "Axe"]):
-                        print(
-                            f"Warning: coordinate value in token {token} contained extra text; extracting coordinates.")
+                        # print(f"Warning: coordinate value in token {token} contained extra text; extracting coordinates.")-----------------------------------------------------
+                        pass
                     lat_str = m_lat.group(1)
                     lon_str = m_lon.group(1)
                 else:
@@ -484,7 +486,7 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     match_list = re.findall(
                         r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        # print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")-----------------------------------------------------
                         coords = [
                             f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
                 elif any(x in current_name.lower() for x in [" treuillage "]):
@@ -492,7 +494,7 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     match_list = re.findall(
                         r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        print(f"Warning: using cercle 600m de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        # print(f"Warning: using cercle 600m de rayon centré sur {match_list[0]} instead of {coords[0]}")------------------------------------------------------
                         coords = [
                             f"cercle de 600m de rayon centré sur {match_list[0]}"]
                 elif any(x in current_name.lower() for x in [" aéromodélisme "]):
@@ -500,7 +502,7 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     match_list = re.findall(
                         r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        print(f"Warning: using cercle 1km de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                        # print(f"Warning: using cercle 1km de rayon centré sur {match_list[0]} instead of {coords[0]}")-----------------------------------------------------
                         coords = [
                             f"cercle de 600m de rayon centré sur {match_list[0]}"]
                 else:
@@ -528,8 +530,8 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     "remarks": remarks
                 }
             }
-            # if "CTR" in current_name:
-            features.append(feature)
+            if "TMZ" in current_name:
+                features.append(feature)
 
 # Create FeatureCollection
 geojson = {

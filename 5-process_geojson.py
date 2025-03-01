@@ -83,17 +83,20 @@ def process_geojson(data):
 def parse_altitude(alt_str, alt_type="Altitude", feature_name="Unknown"):
     formatted=alt_str
     # Process FL tokens: if FL (or fl/Fl) is found, replace patterns with numberFL STD, or warn if no number is found
-    if re.search(r'\b[Ff][Ll]\b', formatted):
+    if re.search(r'\b[Ff][Ll]\s*\d', formatted):
         # Replace occurrences of FL followed by number (with optional space) with numberFL STD
         if re.search(r'\b[Ff][Ll]\s*(\d+)\b', formatted):
             formatted = re.sub(r'\b[Ff][Ll]\s*(\d+)\b', lambda m: f"{m.group(1)}FL STD", formatted)
+            # print(f"{alt_str} transformed to {formatted}")
         else:
             print(f"[{alt_type}] Warning: FL found but no number after FL in: {formatted} in feature '{feature_name}'")
 
     # Replace any occurrence of standalone 'GND' with '0ft ASFC'
-    formatted = re.sub(r"\bGND\b", "0ft ASFC", formatted)
-    formatted = re.sub(r"\bSFC\b", "0ft ASFC", formatted)
-    formatted = re.sub(r"\bUNL\b", "9999999ft AMSL", formatted)
+    formatted = re.sub(r"\bGND\b", "0ft GND", formatted)
+    formatted = re.sub(r"\bSFC\b", "0ft GND", formatted)
+    formatted = re.sub(r"\bASFC\b", "GND", formatted)
+    formatted = re.sub(r"\bAMSL\b", "MSL", formatted)
+    formatted = re.sub(r"\bUNL\b", "9999999ft MSL", formatted)
 
     tokens = formatted.split()
     # Merge tokens if a numeric token is immediately followed by an alphabetic token (e.g., '250' 'ft' -> '250ft')
@@ -191,7 +194,7 @@ def main():
                 except Exception as e:
                     print(f"Error parsing {key}: {e}")
 
-    print("\nUnique ulvalue values:", sorted(list(ulvalue_set)))
+    # print("\nUnique ulvalue values:", sorted(list(ulvalue_set)))
     print("Unique ulunit values:", sorted(list(ulunit_set)))
     print("Unique ulref values:", sorted(list(ulref_set)))
     llvalue_set = set()
@@ -208,10 +211,12 @@ def main():
                         llvalue_set.add(item.get('ulvalue'))
                         llunit_set.add(item.get('ulunit'))
                         llref_set.add(item.get('ulref'))
+                        # if item.get('ulunit') == 'f':
+                        #     print(f"Warning: {alt_array} {props.get('name', 'Unknown')}")
                 except Exception as e:
                     print(f"Error parsing {key}: {e}")
 
-    print("\nUnique llvalue values:", sorted(list(llvalue_set)))
+    # print("\nUnique llvalue values:", sorted(list(llvalue_set)))
     print("Unique llunit values:", sorted(list(llunit_set)))
     print("Unique llref values:", sorted(list(llref_set)))
 

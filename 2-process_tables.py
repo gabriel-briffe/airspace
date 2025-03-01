@@ -492,6 +492,7 @@ def process_table_7(container):
             for j, td in enumerate(tds[1:]):
                 raw_text = " ".join(td.stripped_strings).strip()
                 if j == 0:
+                    print(raw_text)
                     # For cell index 1, insert ' ------------ ' just after the first <p> tag
                     original_html = td.decode_contents()
                     inner_soup = BeautifulSoup(original_html, "html.parser")
@@ -503,7 +504,9 @@ def process_table_7(container):
                         first_p.insert_after(" ------------ ")
                     # convert inner_soup to raw text and clean it using the helper function
                     raw_text = inner_soup.get_text(" ", strip=True).strip()
-                    other_texts.append(remove_control_characters(raw_text))
+                    raw_text = remove_control_characters(raw_text)
+                    print(raw_text)
+                    other_texts.append(raw_text)
                 elif j == 1 and prev_name_text.startswith("LF-R 213 NORD-EST") and lf_r_prefix:
                     raw_text = " ".join(td.stripped_strings).strip()
                     other_texts.append(lf_r_prefix + " " + raw_text if raw_text else lf_r_prefix)
