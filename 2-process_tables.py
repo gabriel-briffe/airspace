@@ -5,6 +5,31 @@ import re
 with open("eaip_selected_tables.html", "r", encoding="utf-8") as f:
     soup = BeautifulSoup(f, "html.parser")
 
+# Add helper function at the top after imports
+
+def format_coords(text):
+    """Clean coordinate text by removing unwanted characters and formatting coordinate pairs as 'lat, lon'."""
+    # Remove parenthesis group if preceded by 'Km' and ending with 'NM'
+    text = re.sub(r'(?i)(km)\s*\([^)]*nm\)', r'\1', text)
+    # Remove degree symbols and other unwanted characters
+    cleaned = re.sub(r"[°º'\"’”]", "", text)
+
+    # Replace occurrences where two coordinates are separated by '-' or ','
+    # Pattern: a token (6 digits with optional spaces before letter) followed by '-' or ',' then a token (7 digits with optional spaces)
+    cleaned = re.sub(
+        r'(\d{6}\s*[NSEW])\s*[-,]\s*(\d{7}\s*[NSEW])',
+        lambda m: f"{re.sub(r'\s+', '', m.group(1))}@{re.sub(r'\s+', '', m.group(2))}",
+        cleaned
+    )
+
+    # Determine delimiter: if ' - ' exists, use that; otherwise, split on commas not inside parentheses
+    if " - " in cleaned:
+        tokens = cleaned.split(" - ")
+    else:
+        tokens = re.split(r'(?<=\d{6}[NSEW]@\d{7}[NSEW])\s*,\s*(?=\d{6}[NSEW]@\d{7}[NSEW])', cleaned)
+
+    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', token.strip()) for token in tokens if token.strip()]
+    return "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
 
 def process_table_0(container):
     # Update table number
@@ -30,9 +55,9 @@ def process_table_0(container):
             # Create a new parsed name row
             name_tr = soup.new_tag("tr")
             name_tr["class"] = ["eaip-row", "parsed-name"]
-            name_td = soup.new_tag("td")
-            name_td.string = raw_text
-            name_tr.append(name_td)
+            name_td_new = soup.new_tag("td")
+            name_td_new.string = raw_text
+            name_tr.append(name_td_new)
             tr.insert_after(name_tr)
         else:
             # Content row: must have 5 cells
@@ -52,9 +77,7 @@ def process_table_0(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+                    array_str = format_coords(cell_text)
 
                 # Create new parsed row with eaip-row class for consistent styling
                 new_tr = soup.new_tag("tr")
@@ -112,9 +135,9 @@ def process_table_1(container):
                 # Create a new parsed name row
                 name_tr = soup.new_tag("tr")
                 name_tr["class"] = ["eaip-row", "parsed-name"]
-                name_td = soup.new_tag("td")
-                name_td.string = raw_text
-            name_tr.append(name_td)
+                name_td_new = soup.new_tag("td")
+                name_td_new.string = raw_text
+                name_tr.append(name_td_new)
             tr.insert_after(name_tr)
             continue
 
@@ -136,9 +159,7 @@ def process_table_1(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+                    array_str = format_coords(cell_text)
 
                 # Create new parsed row with eaip-row class
                 new_tr = soup.new_tag("tr")
@@ -238,8 +259,7 @@ def process_table_2(container):
                 else:
                     array_str = "[]"
             else:
-                parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
+                array_str = format_coords(cell_text)
 
             # Create new parsed row with eaip-row class
             new_tr = soup.new_tag("tr")
@@ -293,9 +313,9 @@ def process_table_3(container):
             # Create a new parsed name row
             name_tr = soup.new_tag("tr")
             name_tr["class"] = ["eaip-row", "parsed-name"]
-            name_td = soup.new_tag("td")
-            name_td.string = raw_text
-            name_tr.append(name_td)
+            name_td_new = soup.new_tag("td")
+            name_td_new.string = raw_text
+            name_tr.append(name_td_new)
             tr.insert_after(name_tr)
         else:
             # Content row: must have 5 cells
@@ -315,9 +335,7 @@ def process_table_3(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+                    array_str = format_coords(cell_text)
 
                 # Create new parsed row with eaip-row class for consistent styling
                 new_tr = soup.new_tag("tr")
@@ -368,9 +386,9 @@ def process_table_4(container):
             # Create a new parsed name row
             name_tr = soup.new_tag("tr")
             name_tr["class"] = ["eaip-row", "parsed-name"]
-            name_td = soup.new_tag("td")
-            name_td.string = raw_text
-            name_tr.append(name_td)
+            name_td_new = soup.new_tag("td")
+            name_td_new.string = raw_text
+            name_tr.append(name_td_new)
             tr.insert_after(name_tr)
             continue
 
@@ -392,9 +410,7 @@ def process_table_4(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+                    array_str = format_coords(cell_text)
 
                 # Create new parsed row with eaip-row class for consistent styling
                 new_tr = soup.new_tag("tr")
@@ -468,9 +484,7 @@ def process_table_5(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+                    array_str = format_coords(cell_text)
 
                 # Create new parsed row with eaip-row class for consistent styling
                 new_tr = soup.new_tag("tr")
@@ -521,9 +535,9 @@ def process_table_6(container):
             # Create a new parsed name row
             name_tr = soup.new_tag("tr")
             name_tr["class"] = ["eaip-row", "parsed-name"]
-            name_td = soup.new_tag("td")
-            name_td.string = raw_text
-            name_tr.append(name_td)
+            name_td_new = soup.new_tag("td")
+            name_td_new.string = raw_text
+            name_tr.append(name_td_new)
             tr.insert_after(name_tr)
         else:
             # Content row: must have 5 cells
@@ -543,9 +557,7 @@ def process_table_6(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
+                    array_str = format_coords(cell_text)
 
                 # Create new parsed row with eaip-row class for consistent styling
                 new_tr = soup.new_tag("tr")
@@ -590,7 +602,7 @@ def process_table_7(container):
             if not full_text.strip():
                 tr["class"] = tr.get("class", []) + ["rejected"]
 
-            coord_match = re.search(r"Cercle|Secteur|(\d{2}°\d{2}(?:'|’)\d{2}(?:\"|”)[NSEW])|(\d{6}[NSEW])|(\d{6} [NSEW])", full_text)
+            coord_match = re.search(r"Cercle|Secteur|(\d{2}°\d{2}(?:'|')\d{2}(?:\"|”)[NSEW])|(\d{6}[NSEW])|(\d{6} [NSEW])", full_text)
 
             # Debugging prints
             # print(f"Raw text: '{full_text}'")
@@ -676,8 +688,7 @@ def process_table_7(container):
                 else:
                     array_str = "[]"
             else:
-                parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
+                array_str = format_coords(cell_text)
 
             # Create new parsed row with eaip-row class
             new_tr = soup.new_tag("tr")
@@ -756,11 +767,7 @@ def process_table_8(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
-
-                # Create new parsed row with eaip-row class for consistent styling
+                    array_str = format_coords(cell_text)
                 new_tr = soup.new_tag("tr")
                 new_tr["class"] = ["eaip-row", "parsed-row"]
 
@@ -810,9 +817,9 @@ def process_table_9(container):
             # Create a new parsed name row
             name_tr = soup.new_tag("tr")
             name_tr["class"] = ["eaip-row", "parsed-name"]
-            name_td = soup.new_tag("td")
-            name_td.string = raw_text
-            name_tr.append(name_td)
+            name_td_new = soup.new_tag("td")
+            name_td_new.string = raw_text
+            name_tr.append(name_td_new)
             tr.insert_after(name_tr)
         else:
             # Content row: must have 5 cells
@@ -832,11 +839,7 @@ def process_table_9(container):
                     else:
                         array_str = "[]"
                 else:
-                    parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in cell_text.split(" - ") if part.strip()]
-                    array_str = "[" + \
-                        ", ".join(f'\"{p}\"' for p in parts) + "]"
-
-                # Create new parsed row with eaip-row class for consistent styling
+                    array_str = format_coords(cell_text)
                 new_tr = soup.new_tag("tr")
                 new_tr["class"] = ["eaip-row", "parsed-row"]
 
@@ -911,8 +914,7 @@ def process_table_10(container):
         # First cell: coordinates parsing as in other tables
         coord_text = content_tds[0].get_text(" ", strip=True)
         if coord_text:
-            parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in coord_text.split(" - ") if part.strip()]
-            array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
+            array_str = format_coords(coord_text)
         else:
             array_str = "[]"
 
@@ -990,8 +992,7 @@ def process_table_11(container):
         # First cell: coordinates parsing as in other tables
         coord_text = content_tds[0].get_text(" ", strip=True)
         if coord_text:
-            parts = [re.sub(r'(\d{6})\s+([NSEW])', r'\1\2', re.sub(r"[°'\"’”]", "", part)) for part in coord_text.split(" - ") if part.strip()]
-            array_str = "[" + ", ".join(f'\"{p}\"' for p in parts) + "]"
+            array_str = format_coords(coord_text)
         else:
             array_str = "[]"
 

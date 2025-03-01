@@ -46,7 +46,8 @@ def parse_arc_text(text):
     # print(text)
     # Matches patterns like: arc anti-horaire de 3 NM de rayon centré sur 461334N, 0012345E or with meters
     m = re.search(
-        r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6,7}[NS])(?:\s*,\s*(\d{6,7}[EW]))?', text, re.IGNORECASE)
+        r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?',
+        text, re.IGNORECASE)
     if not m:
         return None
     # print(m.groups())
@@ -90,7 +91,7 @@ def parse_circle_text(text):
     # or without a longitude
     # print(f"Parsing circle text: {text}")
     m = re.search(
-        r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6,7}[NS])(?:\s*,\s*(\d{6,7}[EW]))?', text, re.IGNORECASE)
+        r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?', text, re.IGNORECASE)
     # print(f"Match: {m}")
     if not m:
         print(f"No match found for circle description: {text}")
@@ -158,10 +159,35 @@ def process_coordinates(all_coords):
             else:
                 print(f"Circle processing failed for token: {token}")
         else:
-            # Treat token as plain "lat , lon" pair
-            parts = [p.strip() for p in token.split(",")]
+            # Check if the token contains multiple coordinate pairs using regex
+            pairs = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', token, re.IGNORECASE)
+            if pairs and len(pairs) > 1:
+                for pair in pairs:
+                    parts = [p.strip() for p in pair.split("@")] 
+                    if len(parts) != 2: 
+                        print(f"Invalid coordinate pair format in pair: {pair}")
+                        continue
+                    lat_str, lon_str = parts[0], parts[1]
+                    # Validate coordinate format
+                    if not (re.fullmatch(r'\d{6,7}[NSEW]', lat_str) and re.fullmatch(r'\d{6,7}[NSEW]', lon_str)):
+                        m_lat = re.search(r'(\d{6,7}[NSEW])', lat_str)
+                        m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
+                        if m_lat and m_lon:
+                            lat_str = m_lat.group(1)
+                            lon_str = m_lon.group(1)
+                        else:
+                            print(f"Invalid coordinate values in pair: {pair}")
+                            continue
+                    lat = convert_coord(lat_str)
+                    lon = convert_coord(lon_str)
+                    final_points.append([lon, lat])
+                continue
+            
+            # Otherwise, expect a single coordinate pair in the token
+            parts = [p.strip() for p in token.split("@")] 
             if len(parts) != 2:
-                if not "Frontière" in token and not "atlantique" in token and not "Côte" in token and not "Parc" in token and not "Axe" in token: print(f"Invalid coordinate pair format: {all_coords}")
+                if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
+                    print(f"Invalid coordinate pair format: {all_coords}")
                 continue
             lat_str, lon_str = parts[0], parts[1]
 
@@ -172,7 +198,8 @@ def process_coordinates(all_coords):
                 m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
                 if m_lat and m_lon:
                     # print(f"Warning")
-                    # print(f"Warning: coordinate value in token '{token}' contained extra text; extracting coordinates.")
+                    if not any(x in token for x in ["E (","Axe"]):
+                        print(f"Warning: coordinate value in token '{token}' contained extra text; extracting coordinates.")
                     lat_str = m_lat.group(1)
                     lon_str = m_lon.group(1)
                 else:
@@ -216,13 +243,9 @@ for container in soup.select('.table-container'):
                 continue
             cell_text = td.get_text(strip=True)
             try:
-                # Expecting cell_text like ["485337N , 0014747E", "485337N , 0014747E", ...] 
-                coords = json.loads(cell_text)
-                # if current_name == "6902 voltige MAZET de ROMANIN (13)" and coords == ["434548N , 0045617E Axe Nord-Sud de 1 NM de longueur centré sur sur 434548N", "0045617E"]:
-                #     coords = ["434548N , 0045617E Axe Nord-Sud de 1 NM de longueur centré sur sur 434548N , 0045617E"]
-                # # If coords is a list with a single string that contains commas, split it
-                # if isinstance(coords, list) and len(coords) == 1 and ',' in coords[0]:
-                #     coords = [c.strip() for c in coords[0].split(",")]
+                # Clean up cell_text by removing control characters
+                clean_text = re.sub(r'[\x00-\x1F]+', '', cell_text)
+                coords = json.loads(clean_text)
             except Exception as e:
                 print(f"Error parsing coordinates: {e}")
                 print(f"Cell text: {cell_text}")
@@ -232,6 +255,13 @@ for container in soup.select('.table-container'):
             polygon_points = process_coordinates(coords)
             if polygon_points is None:
                 continue
+            # Inserted check for 'para' in current_name and single coordinate pair using regex
+            if current_name and ' para ' in current_name.lower() and isinstance(coords, list) and len(coords) == 1:
+                # Use regex to find a single lat@lon coordinate pair within coords[0]
+                match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
+                if len(match_list) == 1:
+                    print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")
+                    coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
             # Create a GeoJSON feature with property "name" from current_name
             feature = {
                 "type": "Feature",
