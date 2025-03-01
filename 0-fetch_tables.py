@@ -1,6 +1,122 @@
 import requests
 from bs4 import BeautifulSoup
 
+# Add a global counter for failed requests at the top
+failed_requests = 0
+
+# New function to fetch AD-2.17 tables (CTR Tables) using logic from fetch_AD.py
+
+def fetch_ad_tables():
+    base_url = "https://www.sia.aviation-civile.gouv.fr/dvd/eAIP_20_FEB_2025/FRANCE/AIRAC-2025-02-20/html/eAIP/"
+    start_url = base_url + "FR-menu-fr-FR.html"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
+    def fetch_page(url):
+        global failed_requests
+        print(f"Fetching (AD): {url}")
+        try:
+            response = requests.get(url, headers=headers)
+            print(f"Status: {response.status_code} for {url}")
+            if response.status_code == 200:
+                return BeautifulSoup(response.text, 'html.parser')
+            else:
+                failed_requests += 1
+                return None
+        except Exception as e:
+            print(f"Exception fetching {url}: {e}")
+            failed_requests += 1
+            return None
+
+    # Fetch the menu page
+    soup = fetch_page(start_url)
+    if not soup:
+        print("Could not fetch the menu page.")
+        return []
+
+    # Get all AD-2.17 links
+    ad_2_17_links = []
+    for link in soup.find_all('a', href=True):
+        href = link['href']
+        if href.endswith('AD-2.17'):
+            if '#' in href:
+                parts = href.split('#')
+                full_url = base_url + parts[0] + "#" + parts[1]
+            else:
+                full_url = base_url + href
+            ad_2_17_links.append(full_url)
+
+    print(f"Found {len(ad_2_17_links)} AD-2.17 links.")
+
+    combined_rows = []
+    single_row_tables = []
+    first_header = None
+
+    for url in ad_2_17_links:
+        page = fetch_page(url.split('#')[0])  # Fetch the page without the fragment
+        if not page:
+            continue
+        section_id = url.split('#')[-1]
+        section_div = page.find('div', id=section_id)
+        if section_div:
+            table = section_div.find('table')
+            if table:
+                thead = table.find('thead')
+                if not first_header and thead:
+                    first_header = thead
+                tbody = table.find('tbody')
+                if tbody:
+                    rows = tbody.find_all('tr')
+                    # Extract aerodrome code from section_id, e.g., LFBA from LFBA-AD-2.17
+                    parts = section_id.split('-')
+                    aerodrome_code = parts[0] if parts else ''
+                    # Optionally, one could insert the code as a new cell. (Commented out as per original fetch_AD.py)
+                    # for row in rows:
+                    #     new_td = page.new_tag('td')
+                    #     new_td.string = aerodrome_code
+                    #     row.insert(0, new_td)
+
+                    if len(rows) > 1:
+                        for row in rows:
+                            combined_rows.append(str(row))
+                    else:
+                        if rows:
+                            single_row_tables.append(str(rows[0]))
+                else:
+                    print(f"No tbody found in {section_id} at {url}")
+            else:
+                print(f"No table found in {section_id} at {url}")
+        else:
+            print(f"Section {section_id} not found at {url}")
+
+    tables_list = []
+    # If we have multiple rows combined
+    if first_header and combined_rows:
+        # Create a combined table with the header and all combined rows
+        combined_table_html = "<table border='1' class='eaip-table'>" + str(first_header) + "<tbody>" + "".join(combined_rows) + "</tbody></table>"
+        # Ensure each row has the 'eaip-row' class
+        soup_table = BeautifulSoup(combined_table_html, 'html.parser')
+        for tr in soup_table.find_all('tr'):
+            existing = tr.get('class', [])
+            if 'eaip-row' not in existing:
+                tr['class'] = existing + ['eaip-row']
+        tables_list.append(str(soup_table.table))
+
+    # Process single row tables
+    if first_header and single_row_tables:
+        for row_html in single_row_tables:
+            single_table_html = "<table border='1' class='eaip-table'>" + str(first_header) + "<tbody>" + row_html + "</tbody></table>"
+            soup_table = BeautifulSoup(single_table_html, 'html.parser')
+            for tr in soup_table.find_all('tr'):
+                existing = tr.get('class', [])
+                if 'eaip-row' not in existing:
+                    tr['class'] = existing + ['eaip-row']
+            tables_list.append(str(soup_table.table))
+
+    return tables_list
+
+
 # List of URLs for eAIP pages
 urls = [
     "https://www.sia.aviation-civile.gouv.fr/dvd/eAIP_20_FEB_2025/FRANCE/AIRAC-2025-02-20/html/eAIP/FR-ENR-2.1-fr-FR.html#ENR-2",
@@ -12,16 +128,19 @@ urls = [
 ]
 
 # Pre-selected tables
-selected_tables= [0, 1, 2, 3, 13, 18, 22, 63, 64, 66, 69, 72]
+selected_tables = [0, 1, 2, 3, 13, 18, 22, 63, 64, 66, 69, 72, 73]
+
 # Function to fetch tables from a URL
 
-
 def extract_tables_from_url(url):
+    global failed_requests
+    print(f"Fetching: {url}")
     try:
         response = requests.get(url)
-        print(f"Fetching {url}: Status code {response.status_code}")
+        print(f"Status: {response.status_code} for {url}")
         if response.status_code != 200:
             print(f"Failed to fetch {url}")
+            failed_requests += 1
             return []
 
         soup = BeautifulSoup(response.content, "html.parser")
@@ -33,6 +152,7 @@ def extract_tables_from_url(url):
         return tables
     except Exception as e:
         print(f"Error fetching {url}: {e}")
+        failed_requests += 1
         return []
 
 
@@ -172,23 +292,38 @@ html_content += "  <button id=\"expand-all-tables\">Expand All Tables</button>\n
 html_content += "  <button id=\"collapse-all-tables\">Collapse All Tables</button>\n"
 html_content += "</div>\n"
 
-# Add tables with per-table buttons
-for index, table in enumerate(all_tables):
-    # Add custom class to each <tr> for styling and toggling
+# Add containers for tables fetched from URLs
+index_counter = 0
+for table in all_tables:
+    # Ensure each row has the 'eaip-row' class
     for tr in table.find_all("tr"):
         tr["class"] = tr.get("class", []) + ["eaip-row"]
     # Ensure table has eaip-table class
     table["class"] = table.get("class", []) + ["eaip-table"]
     html_content += "<div class=\"table-container\">\n"
-    html_content += f"<h3>Table number: {index}</h3>\n"
+    html_content += f"<h3>Table number: {index_counter}</h3>\n"
     html_content += "<div class=\"table-buttons\">\n"
     html_content += "  <button class=\"expand-rows-btn\">Expand All Rows</button>\n"
     html_content += "  <button class=\"collapse-rows-btn\">Collapse All Rows</button>\n"
     html_content += "  <button class=\"collapse-table-btn\">Collapse Table</button>\n"
     html_content += "  <button class=\"expand-table-btn\">Expand Table</button>\n"
     html_content += "</div>\n"
-    html_content += str(table) + "\n"
+    html_content += str(table) + "\n</div>\n"
+    index_counter += 1
+
+# Fetch AD-2.17 tables from fetch_ad_tables() and append them in the same style
+ad_tables = fetch_ad_tables()
+for ad_table in ad_tables:
+    html_content += "<div class=\"table-container\">\n"
+    html_content += f"<h3>Table number: {index_counter}</h3>\n"
+    html_content += "<div class=\"table-buttons\">\n"
+    html_content += "  <button class=\"expand-rows-btn\">Expand All Rows</button>\n"
+    html_content += "  <button class=\"collapse-rows-btn\">Collapse All Rows</button>\n"
+    html_content += "  <button class=\"collapse-table-btn\">Collapse Table</button>\n"
+    html_content += "  <button class=\"expand-table-btn\">Expand Table</button>\n"
     html_content += "</div>\n"
+    html_content += ad_table + "\n</div>\n"
+    index_counter += 1
 
 html_content += "</body>\n</html>"
 
@@ -196,4 +331,7 @@ html_content += "</body>\n</html>"
 output_file = "eaip_tables.html"
 with open(output_file, "w", encoding="utf-8") as f:
     f.write(html_content)
-print(f"Saved {len(all_tables)} tables to '{output_file}'")
+print(f"Saved {index_counter} tables to '{output_file}'")
+
+# Finally, print out the number of failed requests
+print(f"Total number of failed requests: {failed_requests}")

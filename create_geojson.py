@@ -380,13 +380,22 @@ for container_index, container in enumerate(soup.select('.table-container')):
             if td:
                 current_name = td.get_text(strip=True)
         elif 'parsed-row' in classes:
+            # Reinitialize per-row variables to avoid carrying over previous values
+            icao_class = ""
+            upperAltitude = ""
+            lowerAltitude = ""
+            radio = ""
+            schedule = ""
+            restrictions = ""
+            remarks = ""
+
             # Get all <td> elements, first cell contains coordinates, second cell (if container index 0) contains icaoClass
             tds = tr.find_all('td')
             if not tds:
                 continue
             cell_text = tds[0].get_text(strip=True)
 
-            if container_index in [0, 1, 2, 3]:
+            if container_index in [0, 1, 2, 3, 12]:
                 icao_class = tds[1].get_text(strip=True)
                 altitude_text = tds[2].get_text(strip=True)
                 alt_parts = altitude_text.split("------------")
@@ -490,17 +499,17 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     "coordinates": [polygon_points]
                 },
                 "properties": {
-                    "name": current_name if current_name else "",
-                    "icaoClass": (icao_class if 'icao_class' in locals() else "Other"),
+                    "name": current_name ,
+                    "icaoClass": icao_class ,
                     "upperAltitude": upperAltitude,
                     "lowerAltitude": lowerAltitude,
-                    "radio": (radio if 'radio' in locals() else ""),
-                    "schedule": (schedule if 'schedule' in locals() else ""),
-                    "restrictions": (restrictions if 'restrictions' in locals() else ""),
-                    "remarks": (remarks if 'remarks' in locals() else "")
+                    "radio": radio,
+                    "schedule": schedule,
+                    "restrictions": restrictions,
+                    "remarks": remarks
                 }
             }
-            if "TMA" in current_name:
+            if "CTR" in current_name:
                 features.append(feature)
 
 # Create FeatureCollection

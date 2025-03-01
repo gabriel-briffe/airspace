@@ -1034,6 +1034,77 @@ def process_table_11(container):
     return container
 
 
+def process_table_12(container):
+    # Update table number
+    h3 = container.find("h3")
+    if h3:
+        h3.string = "Table number: 12"
+
+    # Track previous non-name row's parsed coordinates
+    prev_parsed_coords = None
+
+    # Process <tr> rows
+    all_rows = container.select(".eaip-row")
+    for i, tr in enumerate(all_rows):
+        # Check if this is a name row (has "strong" in any <td> or <th>)
+        name_td = tr.find(lambda tag: tag.name in [
+                          "td", "th"] and "strong" in tag.get("class", []))
+        if name_td:
+            # Extract raw text for name row, ignoring <span> structure
+            raw_text = " ".join(name_td.stripped_strings)
+            name_td.clear()
+            name_td.string = raw_text
+            tr["class"] = tr.get("class", []) + ["highlighted"]
+            # Create a new parsed name row
+            name_tr = soup.new_tag("tr")
+            name_tr["class"] = ["eaip-row", "parsed-name"]
+            name_td_new = soup.new_tag("td")
+            name_td_new.string = raw_text
+            name_tr.append(name_td_new)
+            tr.insert_after(name_tr)
+        else:
+            # Content row: must have 5 cells
+            tds = tr.find_all("td")
+            if len(tds) == 5:
+                # First cell: Extract raw text from first cell and split by ' - '
+                first_cell = tds[0]
+                cell_text = first_cell.get_text(" ", strip=True)
+                if not cell_text:
+                    # Use previous non-name row's parsed coordinates if available and previous row is not a name row
+                    if prev_parsed_coords and i > 0:
+                        prev_tr = all_rows[i - 1]
+                        if not prev_tr.find(lambda tag: tag.name in ["td", "th"] and "strong" in tag.get("class", [])):
+                            array_str = prev_parsed_coords
+                        else:
+                            array_str = "[]"
+                    else:
+                        array_str = "[]"
+                else:
+                    array_str = format_coords(cell_text)
+
+                # Create new parsed row with eaip-row class for consistent styling
+                new_tr = soup.new_tag("tr")
+                new_tr["class"] = ["eaip-row", "parsed-row"]
+
+                # First cell: Array with (lat, lon) pairs and "Frontière" entries or copied coords
+                new_td = soup.new_tag("td")
+                new_td.string = array_str
+                new_tr.append(new_td)
+
+                # Remaining cells: Raw text from original <td>
+                for td in tds[1:]:
+                    raw_text = " ".join(td.stripped_strings)
+                    new_td = soup.new_tag("td")
+                    new_td.string = raw_text
+                    new_tr.append(new_td)
+
+                # Insert new row after the content row
+                tr.insert_after(new_tr)
+
+                # Update previous parsed coordinates
+                prev_parsed_coords = array_str
+
+    return container
 
 
 
@@ -1052,6 +1123,7 @@ table_processors = {
     9: process_table_9,
     10: process_table_10,
     11: process_table_11,
+    12: process_table_12,
 
     # Extend this as needed
 }
@@ -1164,4 +1236,4 @@ html_content += "</body>\n</html>"
 output_file = "eaip_selected_tables_stage1.html"
 with open(output_file, "w", encoding="utf-8") as f:
     f.write(html_content)
-print(f"Saved Table 0 to '{output_file}'")
+print(f"Saved {len(processed_containers)} tables to '{output_file}'")

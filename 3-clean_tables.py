@@ -21,4 +21,4 @@ for container in soup.select('.table-container'):
 with open(output_file, "w", encoding="utf-8") as f:
     f.write(str(soup))
 
-print(f"Saved cleaned tables to '{output_file}'")
+print(f"Cleaned {len(soup.select('.table-container'))} tables to '{output_file}'")

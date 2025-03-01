@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 
 # List of table numbers to keep (example input)
-tables_to_keep = [0, 1, 2, 3, 13, 18, 22, 63, 64, 66, 69, 72]  # Replace with your desired list
+tables_to_keep = [0, 1, 2, 3, 13, 18, 22, 63, 64, 66, 69, 72, 73]  # Replace with your desired list
 
 # Load the original eaip_tables.html
 with open("eaip_tables.html", "r", encoding="utf-8") as f:
