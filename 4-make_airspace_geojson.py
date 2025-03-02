@@ -3,9 +3,9 @@ import re
 from bs4 import BeautifulSoup
 import math
 
-# Input and output file paths
-input_file = 'eaip_selected_tables_stage1_cleaned.html'
-geojson_file = 'airspace.geojson'
+# ===============================
+# Coordinate Conversion and Parsing Helper Functions
+# ===============================
 
 # Helper function to convert coordinate string to decimal degrees
 # Assumes coordinate string is in format: either 6 or 7 digits followed by a hemisphere letter
@@ -43,14 +43,12 @@ def convert_coord(coord_str):
 
 
 def parse_arc_text(text):
-    # print(text)
     # Matches patterns like: arc anti-horaire de 3 NM de rayon centré sur 461334N, 0012345E or with meters
     m = re.search(
         r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?',
         text, re.IGNORECASE)
     if not m:
         return None
-    # print(m.groups())
     direction = m.group(1).lower()
     radius_value = float(m.group(2))
     unit = m.group(3).strip()
@@ -64,14 +62,13 @@ def parse_arc_text(text):
     lat_str = m.group(4).strip()
     lon_str = m.group(5).strip() if m.group(5) else None
     if not lon_str:
-        # print(f"Missing longitude in arc description: {text}")
         return None
     lat_center = convert_coord(lat_str)
     lon_center = convert_coord(lon_str)
     # Convert radius in nautical miles to degrees (approximation)
     r_deg_lat = radius_nm / 60  # approx change in latitude
     r_deg_lon = r_deg_lat / math.cos(math.radians(lat_center))
-    # Adjust num_segments based on radius: num_segments = max(12, int(radius_nm * 12))
+    # Determine number of segments
     num_segments = max(12, int(radius_nm * 12))
     points = []
     for i in range(num_segments):
@@ -88,17 +85,13 @@ def parse_arc_text(text):
 
 def parse_circle_text(text):
     # Matches patterns like: cercle de 500 m de rayon centré sur 433305N, 0061234E
-    # or without a longitude
-    # print(f"Parsing circle text: {text}")
     m = re.search(
         r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?', text, re.IGNORECASE)
-    # print(f"Match: {m}")
     if not m:
         print(f"No match found for circle description: {text}")
         return None
     radius_value = float(m.group(1))
     unit = m.group(2).strip()
-    # Convert to nautical miles if needed
     if unit.lower() == 'm':
         radius_nm = radius_value / 1852
     elif unit.lower() == 'km':
@@ -112,10 +105,8 @@ def parse_circle_text(text):
         return None
     lat_center = convert_coord(lat_str)
     lon_center = convert_coord(lon_str)
-    # Convert radius in nautical miles to degrees (approximation)
     r_deg_lat = radius_nm / 60
     r_deg_lon = r_deg_lat / math.cos(math.radians(lat_center))
-    # Adjust number of segments based on radius
     num_segments = max(12, int(radius_nm * 12))
     points = []
     for i in range(num_segments):
@@ -145,224 +136,188 @@ def construct_arc(prev_pt, arc_text, next_pt):
         radius_nm = radius_value
     lat_str = m.group(4).strip()
     lon_str = m.group(5).strip()
-    lat_center = convert_coord(lat_str)  # Degrees
-    lon_center = convert_coord(lon_str)  # Degrees
-
-    # Angular radius in radians
-    angular_radius = radius_nm*math.pi/60/180
-
-    # Convert center to radians
+    lat_center = convert_coord(lat_str)
+    lon_center = convert_coord(lon_str)
+    angular_radius = radius_nm * math.pi / 60 / 180
     lat_center_rad = math.radians(lat_center)
     lon_center_rad = math.radians(lon_center)
 
-    # Compute initial and final bearings from center to points
     def bearing_to_point(lat1, lon1, lat2, lon2):
-        """Calculate initial bearing from lat1,lon1 to lat2,lon2 in radians."""
         lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
         dlon = lon2 - lon1
         y = math.sin(dlon) * math.cos(lat2)
-        x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * \
-            math.cos(lat2) * math.cos(dlon)
+        x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
         return math.atan2(y, x)
 
-    # Convert coordinates to radians in range [-π, π]
-    start_bearing = bearing_to_point(
-        lat_center, lon_center, prev_pt[0], prev_pt[1])
-    end_bearing = bearing_to_point(
-        lat_center, lon_center, next_pt[0], next_pt[1])
-
-    # Convert bearings to [0, 2π] range
+    start_bearing = bearing_to_point(lat_center, lon_center, prev_pt[0], prev_pt[1])
+    end_bearing = bearing_to_point(lat_center, lon_center, next_pt[0], next_pt[1])
     if start_bearing < 0:
-        start_bearing += 2*math.pi
+        start_bearing += 2 * math.pi
     if end_bearing < 0:
-        end_bearing += 2*math.pi
-
-    # Raw delta_angle (bearings are in [0, 2π])
+        end_bearing += 2 * math.pi
     delta_angle = end_bearing - start_bearing
     if delta_angle > 2 * math.pi:
         delta_angle -= 2 * math.pi
     elif delta_angle < -2 * math.pi:
         delta_angle += 2 * math.pi
-    # delta_angle is now in [-2π, 2π]
-
-    # Adjust for direction
-    if direction == 'horaire':  # Clockwise: arc should be positive since we work with bearings
+    if direction == 'horaire':
         if delta_angle < 0:
             delta_angle += 2 * math.pi
-    else:  # anti-horaire: counterclockwise: arc should be negative since we work with bearings
+    else:
         if delta_angle > 0:
             delta_angle -= 2 * math.pi
-
-    # Debug output
-    start_deg = math.degrees(start_bearing)
-    end_deg = math.degrees(end_bearing)
-    delta_deg = math.degrees(delta_angle)
-    # if direction == 'horaire' and delta_deg < 0:
-    #     print(f"start_bearing={start_deg:.1f}, end_bearing={end_deg:.1f}, delta_angle={delta_deg:.1f}, direction={direction}")
-    # print(f"start_bearing={start_bearing:.1f}, end_bearing={end_bearing:.1f}, delta_angle={delta_angle:.1f}, direction={direction}")
-    # elif direction == 'anti-horaire' and delta_deg > 0:
-    #     print(f"start_bearing={start_deg:.1f}, end_bearing={end_deg:.1f}, delta_angle={delta_deg:.1f}, direction={direction}")
-
-    # num_segments = 1
     num_segments = max(2, int(abs(delta_angle) / math.radians(5)))
     arc_points = []
-
-    # Generate points along the arc using spherical coordinates
     for i in range(num_segments + 1):
         t = i / num_segments
         if i == 0:
-            # we don't want to add start point but we need to set the point for the next ones
-            # point = prev_pt
             continue
         elif i == num_segments:
-            # here we should be at the end point, so we don't need to set any point, and we don't append to arc_points
-            break  # useless but for clarity
+            break
         else:
             bearing = start_bearing + t * delta_angle
             if bearing < 0:
-                bearing += 2*math.pi
-            if bearing > 2*math.pi:
-                bearing -= 2*math.pi
-            # Spherical law of cosines for latitude
-            lat_rad = math.asin(
-                math.sin(lat_center_rad) * math.cos(angular_radius) +
-                math.cos(lat_center_rad) *
-                math.sin(angular_radius) * math.cos(bearing)
-            )
-            # Longitude calculation
-            lon_rad = lon_center_rad + math.atan2(
-                math.sin(bearing) * math.sin(angular_radius) *
-                math.cos(lat_center_rad),
-                math.cos(angular_radius) -
-                math.sin(lat_center_rad) * math.sin(lat_rad)
-            )
-            lon_rad = (lon_rad+3*math.pi) % (2*math.pi) - math.pi
+                bearing += 2 * math.pi
+            if bearing > 2 * math.pi:
+                bearing -= 2 * math.pi
+            lat_rad = math.asin(math.sin(lat_center_rad) * math.cos(angular_radius) +
+                                math.cos(lat_center_rad) * math.sin(angular_radius) * math.cos(bearing))
+            lon_rad = lon_center_rad + math.atan2(math.sin(bearing) * math.sin(angular_radius) * math.cos(lat_center_rad),
+                                                  math.cos(angular_radius) - math.sin(lat_center_rad) * math.sin(lat_rad))
+            lon_rad = (lon_rad + 3 * math.pi) % (2 * math.pi) - math.pi
             lat = math.degrees(lat_rad)
             lon = math.degrees(lon_rad)
-            # epsg 4326 is lon,lat
-            point = [lon, lat]
-            arc_points.append(point)
-
-
+            arc_points.append([lon, lat])
     return arc_points
 
 
-def process_coordinates(all_coords):
-    """
-    Simplified process_coordinates: expects all_coords to be a list of strings in the format "lat , lon".
-    For each string (token), if it contains 'arc' or 'cercle', the corresponding parser is called to generate coordinates.
-    Otherwise, the string is treated as a plain coordinate pair.
-    By 'token' we mean each individual string element from the input list, which should be a coordinate pair like "485337N , 0012345E".
-    """
-    final_points = []
-    i = 0
-    while i < len(all_coords):
-        token = all_coords[i]
-        lower_token = token.lower()
-        # Modified arc processing to handle wrapping around for first and last token
-        if "arc horaire" in lower_token or "arc anti-horaire" in lower_token:
-            # Determine previous and next indices using wrap-around
-            prev_index = i - 1 if i != 0 else len(all_coords) - 1
-            next_index = i + 1 if i != len(all_coords) - 1 else 0
-            prev_token = all_coords[prev_index]
-            next_token = all_coords[next_index]
-            # Check if adjacent tokens are also arcs
-            if "arc" in prev_token.lower():
-                print(f"Previous token is also an arc: {prev_token}")
-            if "arc" in next_token.lower():
-                print(f"Next token is also an arc: {next_token}")
-            # Try to extract a coordinate pair from next_token using regex
-            m_prev = re.search(
-                r'(\d{6}[NSEW])\s*@\s*(\d{7}[NSEW])', prev_token, re.IGNORECASE)
-            m_next = re.search(
-                r'(\d{6}[NSEW])\s*@\s*(\d{7}[NSEW])', next_token, re.IGNORECASE)
-            if m_next and m_prev:
-                prev_pt = [convert_coord(m_prev.group(
-                    1)), convert_coord(m_prev.group(2))]
-                next_pt = [convert_coord(m_next.group(
-                    1)), convert_coord(m_next.group(2))]
-                # print(f"prev_pt={prev_pt}, next_pt={next_pt}")
-                arc_points = construct_arc(prev_pt, token, next_pt)
-                if arc_points is not None and len(arc_points) > 1:
-                    final_points.extend(arc_points)
-                    i += 1
-                    continue
-            else:
-                print(f"arc au bout de la chaine")
-        elif "cercle de" in lower_token and "centré sur" in lower_token:
-            circle_points = parse_circle_text(token)
-            if circle_points is not None:
-                final_points.extend(circle_points[:-1])
-            else:
-                print(f"Circle processing failed for token: {token}")
-        elif "frontière" in lower_token:
-            print(f"Frontière: {token}")
+# New helper function to process an arc token
+# Expects the current token, previous token, and next token
+# Returns a list of coordinates if successful, else an empty list
+
+def process_arc_token(token, prev_token, next_token):
+    lower_token = token.lower()
+    if "arc horaire" in lower_token or "arc anti-horaire" in lower_token:
+        if "arc" in prev_token.lower():
+            print(f"Previous token is also an arc: {prev_token}")
+        if "arc" in next_token.lower():
+            print(f"Next token is also an arc: {next_token}")
+        m_prev = re.search(r'(\d{6}[NSEW])\s*@\s*(\d{7}[NSEW])', prev_token, re.IGNORECASE)
+        m_next = re.search(r'(\d{6}[NSEW])\s*@\s*(\d{7}[NSEW])', next_token, re.IGNORECASE)
+        if m_prev and m_next:
+            prev_pt = [convert_coord(m_prev.group(1)), convert_coord(m_prev.group(2))]
+            next_pt = [convert_coord(m_next.group(1)), convert_coord(m_next.group(2))]
+            arc_points = construct_arc(prev_pt, token, next_pt)
+            if arc_points is not None and len(arc_points) > 1:
+                return arc_points
         else:
-            # Check if the token contains multiple coordinate pairs using regex
-            pairs = re.findall(
-                r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', token, re.IGNORECASE)
-            if pairs and len(pairs) > 1:
-                for pair in pairs:
-                    parts = [p.strip() for p in pair.split("@")]
-                    if len(parts) != 2:
-                        print(
-                            f"Invalid coordinate pair format in pair: {pair}")
-                        continue
-                    lat_str, lon_str = parts[0], parts[1]
-                    # Validate coordinate format
-                    if not (re.fullmatch(r'\d{6,7}[NSEW]', lat_str) and re.fullmatch(r'\d{6,7}[NSEW]', lon_str)):
-                        m_lat = re.search(r'(\d{6,7}[NSEW])', lat_str)
-                        m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
-                        if m_lat and m_lon:
-                            lat_str = m_lat.group(1)
-                            lon_str = m_lon.group(1)
-                        else:
-                            print(f"Invalid coordinate values in pair: {pair}")
-                            continue
-                    lat = convert_coord(lat_str)
-                    lon = convert_coord(lon_str)
-                    final_points.append([lon, lat])
-                i += 1
-                continue
-            # Otherwise, expect a single coordinate pair in the token
-            parts = [p.strip() for p in token.split("@")]
+            print(f"Arc token at chain end: {token}")
+    return []
+
+
+# New helper function to process a circle token
+# Returns a list of coordinates if successful, else an empty list
+
+def process_circle_token(token):
+    if "cercle de" in token.lower() and "centré sur" in token.lower():
+        circle_points = parse_circle_text(token)
+        if circle_points is not None:
+            # Remove the last point to avoid duplication if needed
+            return circle_points[:-1]
+        else:
+            print(f"Circle processing failed for token: {token}")
+    return []
+
+
+# New helper function to process a plain coordinate token
+# Returns a list of coordinates (usually a single pair or multiple pairs) if successful, else an empty list
+
+def process_plain_token(token):
+    lower_token = token.lower()
+    coordinates = []
+    # Check for multiple coordinate pairs in the token
+    pairs = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', token, re.IGNORECASE)
+    if pairs and len(pairs) > 1:
+        for pair in pairs:
+            parts = [p.strip() for p in pair.split("@")]
             if len(parts) != 2:
-                # if not any(x in token for x in ["Frontière", "atlantique"]):
-                if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
-                    print(f"Invalid coordinate pair format: {all_coords}")
-                i += 1
+                print(f"Invalid coordinate pair format in pair: {pair}")
                 continue
             lat_str, lon_str = parts[0], parts[1]
-
-            # Check if the parts exactly match the expected coordinate pattern
             if not (re.fullmatch(r'\d{6,7}[NSEW]', lat_str) and re.fullmatch(r'\d{6,7}[NSEW]', lon_str)):
-                # Attempt to extract valid coordinate substrings from the parts
                 m_lat = re.search(r'(\d{6,7}[NSEW])', lat_str)
                 m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
                 if m_lat and m_lon:
-                    # print(f"Warning")
-                    if not any(x in token for x in ["E (", "Axe"]):
-                        # print(f"Warning: coordinate value in token {token} contained extra text; extracting coordinates.")-----------------------------------------------------
-                        pass
                     lat_str = m_lat.group(1)
                     lon_str = m_lon.group(1)
                 else:
-                    print(f"Invalid coordinate values: {token}")
-                    i += 1
+                    print(f"Invalid coordinate values in pair: {pair}")
                     continue
             lat = convert_coord(lat_str)
             lon = convert_coord(lon_str)
-            final_points.append([lon, lat])
+            coordinates.append([lon, lat])
+        return coordinates
+    else:
+        # Expect a single coordinate pair separated by '@'
+        parts = [p.strip() for p in token.split("@")]
+        if len(parts) != 2:
+            if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
+                print(f"Invalid coordinate pair format: {token}")
+            return []
+        lat_str, lon_str = parts[0], parts[1]
+        if not (re.fullmatch(r'\d{6,7}[NSEW]', lat_str) and re.fullmatch(r'\d{6,7}[NSEW]', lon_str)):
+            m_lat = re.search(r'(\d{6,7}[NSEW])', lat_str)
+            m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
+            if m_lat and m_lon:
+                lat_str = m_lat.group(1)
+                lon_str = m_lon.group(1)
+            else:
+                print(f"Invalid coordinate values: {token}")
+                return []
+        lat = convert_coord(lat_str)
+        lon = convert_coord(lon_str)
+        return [[lon, lat]]
+
+
+# Refactored process_coordinates using the new helper functions
+
+def process_coordinates(all_coords):
+    """
+    Expects all_coords to be a list of coordinate tokens.
+    Processes each token using arc, circle, or plain coordinate logic.
+    Returns a list of points forming a closed polygon, or None if invalid.
+    """
+    final_points = []
+    i = 0
+    total = len(all_coords)
+    while i < total:
+        token = all_coords[i]
+        lower_token = token.lower()
+        points = []
+        if "arc horaire" in lower_token or "arc anti-horaire" in lower_token:
+            prev_index = i - 1 if i != 0 else total - 1
+            next_index = i + 1 if i != total - 1 else 0
+            prev_token = all_coords[prev_index]
+            next_token = all_coords[next_index]
+            points = process_arc_token(token, prev_token, next_token)
+        elif "cercle de" in lower_token and "centré sur" in lower_token:
+            points = process_circle_token(token)
+        else:
+            points = process_plain_token(token)
+        if points:
+            final_points.extend(points)
         i += 1
 
     if not final_points or len(final_points) < 2:
         return None
-
-    # Ensure the polygon is closed
     if final_points[0] != final_points[-1]:
         final_points.append(final_points[0])
     return final_points
 
+
+# Input and output file paths
+input_file = 'eaip_selected_tables_stage1_cleaned.html'
+geojson_file = 'airspace.geojson'
 
 # Parse the cleaned HTML file
 with open(input_file, 'r', encoding='utf-8') as f:
@@ -373,16 +328,13 @@ features = []
 # For every table container, process rows in document order to associate parsed rows with the previous parsed name row
 for container_index, container in enumerate(soup.select('.table-container')):
     current_name = None
-    # Loop over all rows in order within the container
     for tr in container.find_all('tr'):
         classes = tr.get('class', [])
         if 'parsed-name' in classes:
-            # Update current name using the text from the first cell
             td = tr.find('td')
             if td:
                 current_name = td.get_text(strip=True)
         elif 'parsed-row' in classes:
-            # Reinitialize per-row variables to avoid carrying over previous values
             icao_class = ""
             upperAltitude = ""
             lowerAltitude = ""
@@ -391,7 +343,6 @@ for container_index, container in enumerate(soup.select('.table-container')):
             restrictions = ""
             remarks = ""
 
-            # Get all <td> elements, first cell contains coordinates, second cell (if container index 0) contains icaoClass
             tds = tr.find_all('td')
             if not tds:
                 continue
@@ -403,116 +354,81 @@ for container_index, container in enumerate(soup.select('.table-container')):
                 alt_parts = altitude_text.split("------------")
                 upperAltitude = alt_parts[0].strip()
                 lowerAltitude = alt_parts[1].strip()
-
                 radio = tds[3].get_text(strip=True)
                 remarks = tds[4].get_text(strip=True)
-
             elif container_index == 4:
-                icao_class = ""
                 altitude_text = tds[1].get_text(strip=True)
                 alt_parts = altitude_text.split("------------")
                 upperAltitude = alt_parts[0].strip()
                 lowerAltitude = alt_parts[1].strip()
-
                 radio = tds[2].get_text(strip=True)
                 remarks = tds[3].get_text(strip=True)
-
             elif container_index in [5, 6]:
-                icao_class = ""
                 altitude_text = tds[1].get_text(strip=True)
                 alt_parts = altitude_text.split("------------")
                 upperAltitude = alt_parts[0].strip()
                 lowerAltitude = alt_parts[1].strip()
-
                 schedule = tds[2].get_text(strip=True)
                 restrictions = tds[3].get_text(strip=True)
                 remarks = tds[4].get_text(strip=True)
-
             elif container_index == 7:
-                icao_class = ""
                 altitude_text = tds[1].get_text(strip=True)
                 alt_parts = altitude_text.split("------------")
                 upperAltitude = alt_parts[0].strip()
                 lowerAltitude = alt_parts[1].strip()
-
                 restrictions = tds[2].get_text(strip=True)
-            # Added branch for tables index 8 and 9
             elif container_index in [8, 9]:
-                icao_class = ""
                 altitude_text = tds[1].get_text(strip=True)
                 alt_parts = altitude_text.split("------------")
                 upperAltitude = alt_parts[0].strip()
                 lowerAltitude = alt_parts[1].strip()
-
                 schedule = tds[2].get_text(strip=True)
                 restrictions = tds[3].get_text(strip=True)
                 remarks = tds[4].get_text(strip=True)
-
-            # Added branch for table index 10 with 3 cells: coordinates, altitudes, remarks
             elif container_index == 10:
-                icao_class = ""
                 altitude_text = tds[1].get_text(strip=True)
                 alt_parts = altitude_text.split("------------")
                 upperAltitude = alt_parts[0].strip()
                 lowerAltitude = alt_parts[1].strip()
                 remarks = tds[2].get_text(strip=True)
-
-            # Added branch for table index 11 with 4 cells: upperAltitude, restrictions, remarks with lowerAltitude set to 'GND'
             elif container_index == 11:
-                icao_class = ""
                 upperAltitude = tds[1].get_text(strip=True)
                 lowerAltitude = "GND"
                 restrictions = tds[2].get_text(strip=True)
                 remarks = tds[3].get_text(strip=True)
 
             try:
-                # Clean up cell_text by replacing control characters with a single space and compressing multiple spaces
                 clean_text = re.sub(r'[\x00-\x1F]+', ' ', cell_text)
                 clean_text = re.sub(r'\s+', ' ', clean_text).strip()
                 coords = json.loads(clean_text)
             except Exception as e:
                 print(f"Error parsing coordinates: {e}")
                 print(f"Cell text: {cell_text}")
-                # Skip rows with non-JSON coordinate text
                 continue
-            # Inserted check for 'para' in current_name and single coordinate pair using regex
-            if current_name and (any(x in current_name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) and isinstance(coords, list) and len(coords) == 1:
-                # print(coords[0])
-                # If already contains 'cercle de' and 'de rayon centré sur', skip replacement
+
+            if current_name and (any(x in current_name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) \
+               and isinstance(coords, list) and len(coords) == 1:
                 if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
                     pass
                 elif any(x in current_name.lower() for x in [" para "]):
-                    # Use regex to find a single lat@lon coordinate pair within coords[0]
-                    match_list = re.findall(
-                        r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
+                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        # print(f"Warning: using cercle 3 NM de rayon centré sur {match_list[0]} instead of {coords[0]}")-----------------------------------------------------
-                        coords = [
-                            f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
+                        coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
                 elif any(x in current_name.lower() for x in [" treuillage "]):
-                    # Use regex to find a single lat@lon coordinate pair within coords[0]
-                    match_list = re.findall(
-                        r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
+                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        # print(f"Warning: using cercle 600m de rayon centré sur {match_list[0]} instead of {coords[0]}")------------------------------------------------------
-                        coords = [
-                            f"cercle de 600m de rayon centré sur {match_list[0]}"]
+                        coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
                 elif any(x in current_name.lower() for x in [" aéromodélisme "]):
-                    # Use regex to find a single lat@lon coordinate pair within coords[0]
-                    match_list = re.findall(
-                        r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
+                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
                     if len(match_list) == 1:
-                        # print(f"Warning: using cercle 1km de rayon centré sur {match_list[0]} instead of {coords[0]}")-----------------------------------------------------
-                        coords = [
-                            f"cercle de 600m de rayon centré sur {match_list[0]}"]
+                        coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
                 else:
-                    # print(f"discarding {current_name}")
                     continue
-            # Process only if valid
+
             polygon_points = process_coordinates(coords)
             if polygon_points is None:
                 continue
-            # Create a GeoJSON feature with property "name" and appropriate properties based on table index
+
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -520,8 +436,8 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     "coordinates": [polygon_points]
                 },
                 "properties": {
-                    "name": current_name ,
-                    "icaoClass": icao_class ,
+                    "name": current_name,
+                    "icaoClass": icao_class,
                     "upperAltitude": upperAltitude,
                     "lowerAltitude": lowerAltitude,
                     "radio": radio,
@@ -530,8 +446,8 @@ for container_index, container in enumerate(soup.select('.table-container')):
                     "remarks": remarks
                 }
             }
-            if "TMZ" in current_name:
-                features.append(feature)
+            # if "TMZ" in current_name:
+            features.append(feature)
 
 # Create FeatureCollection
 geojson = {
