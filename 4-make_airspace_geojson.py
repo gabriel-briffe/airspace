@@ -2,7 +2,7 @@ import json
 import re
 from bs4 import BeautifulSoup
 import math
-
+from preprocess_border_file import read_border_geojson
 # ===============================
 # Regex Patterns
 # ===============================
@@ -283,9 +283,14 @@ def process_plain_token(token):
         return [[lon, lat]]
 
 
+def process_france_token(token,border_coords):
+    # TODO: process france token
+    pass
+
+
 # Refactored process_coordinates using the new helper functions
 
-def process_coordinates(all_coords):
+def process_coordinates(all_coords,border_coords):
     """
     Expects all_coords to be a list of coordinate tokens.
     Processes each token using arc, circle, or plain coordinate logic.
@@ -306,6 +311,11 @@ def process_coordinates(all_coords):
             points = process_arc_token(token, prev_token, next_token)
         elif "cercle de" in lower_token and "centré sur" in lower_token:
             points = process_circle_token(token)
+        elif "frontière" in lower_token or "atlantique" in lower_token or "côte" in lower_token:
+            points = process_france_token(token,border_coords)
+        elif "parc" in lower_token or "axe" in lower_token:
+            # print(f"need to process park and axe")
+            pass
         else:
             points = process_plain_token(token)
         if points:
@@ -341,12 +351,13 @@ def create_geojson_feature(name, polygon_points, icao_class, upperAltitude, lowe
     }
 
 
-def main(input_file, geojson_file):
+def main(input_file, geojson_file,border_file):
     # Parse the cleaned HTML file
     with open(input_file, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f, 'html.parser')
 
     features = []
+    border_coords = read_border_geojson(border_file)
 
     # For every table container, process rows in document order to associate parsed rows with the previous parsed name row
     for container_index, container in enumerate(soup.select('.table-container')):
@@ -448,7 +459,7 @@ def main(input_file, geojson_file):
                     else:
                         continue
 
-                polygon_points = process_coordinates(coords)
+                polygon_points = process_coordinates(coords,border_coords)
                 if polygon_points is None:
                     continue
 
@@ -475,8 +486,9 @@ if __name__ == '__main__':
     # Input and output file paths
     input_file = 'eaip_selected_tables_stage1_cleaned.html'
     geojson_file = 'airspace.geojson'
+    border_file = 'France.geojson'
 
-    main(input_file, geojson_file)
+    main(input_file, geojson_file,border_file)
 
 
 # Invalid coordinate pair format: ['502500N , 0022400E Verticale N41 au Sud-Est de la commune axe 080/260 de 1km de part et dautre du point 502500N,0022400E']
