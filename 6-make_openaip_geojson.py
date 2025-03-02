@@ -104,7 +104,8 @@ def main():
             del props["lowerUlArray"]
 
     # Write the openAIP geojson
-    with open('/Users/gabrielbriffe/code/mountainCircles-map-beta/test2/merged_asp.geojson', 'w') as outfile:
+    # with open('/Users/gabrielbriffe/code/mountainCircles-map-beta/test2/merged_asp.geojson', 'w') as outfile:
+    with open('airspace_openAIP.geojson', 'w') as outfile:
         json.dump(data, outfile, indent=2)
 
 
