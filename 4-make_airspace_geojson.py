@@ -4,6 +4,15 @@ from bs4 import BeautifulSoup
 import math
 
 # ===============================
+# Regex Patterns
+# ===============================
+
+REGEX_ARC = r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?'
+REGEX_CIRCLE = r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?'
+REGEX_COORD_PAIR = r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]'
+REGEX_COORD_SINGLE = r'\d{6,7}[NSEW]'
+
+# ===============================
 # Coordinate Conversion and Parsing Helper Functions
 # ===============================
 
@@ -43,10 +52,8 @@ def convert_coord(coord_str):
 
 
 def parse_arc_text(text):
-    # Matches patterns like: arc anti-horaire de 3 NM de rayon centré sur 461334N, 0012345E or with meters
-    m = re.search(
-        r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?',
-        text, re.IGNORECASE)
+    # Use the centralized regex constant
+    m = re.search(REGEX_ARC, text, re.IGNORECASE)
     if not m:
         return None
     direction = m.group(1).lower()
@@ -84,9 +91,7 @@ def parse_arc_text(text):
 
 
 def parse_circle_text(text):
-    # Matches patterns like: cercle de 500 m de rayon centré sur 433305N, 0061234E
-    m = re.search(
-        r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?', text, re.IGNORECASE)
+    m = re.search(REGEX_CIRCLE, text, re.IGNORECASE)
     if not m:
         print(f"No match found for circle description: {text}")
         return None
@@ -120,9 +125,7 @@ def parse_circle_text(text):
 
 
 def construct_arc(prev_pt, arc_text, next_pt):
-    m = re.search(
-        r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?',
-        arc_text, re.IGNORECASE)
+    m = re.search(REGEX_ARC, arc_text, re.IGNORECASE)
     if not m:
         return None
     direction = m.group(1).lower()
@@ -202,14 +205,18 @@ def process_arc_token(token, prev_token, next_token):
             print(f"Previous token is also an arc: {prev_token}")
         if "arc" in next_token.lower():
             print(f"Next token is also an arc: {next_token}")
-        m_prev = re.search(r'(\d{6}[NSEW])\s*@\s*(\d{7}[NSEW])', prev_token, re.IGNORECASE)
-        m_next = re.search(r'(\d{6}[NSEW])\s*@\s*(\d{7}[NSEW])', next_token, re.IGNORECASE)
+        m_prev = re.search(REGEX_COORD_PAIR, prev_token, re.IGNORECASE)
+        m_next = re.search(REGEX_COORD_PAIR, next_token, re.IGNORECASE)
         if m_prev and m_next:
-            prev_pt = [convert_coord(m_prev.group(1)), convert_coord(m_prev.group(2))]
-            next_pt = [convert_coord(m_next.group(1)), convert_coord(m_next.group(2))]
-            arc_points = construct_arc(prev_pt, token, next_pt)
-            if arc_points is not None and len(arc_points) > 1:
-                return arc_points
+            # Extract first coordinate pair from the match using raw f-string
+            prev_match = re.search(rf'({REGEX_COORD_SINGLE})\s*@\s*({REGEX_COORD_SINGLE})', prev_token, re.IGNORECASE)
+            next_match = re.search(rf'({REGEX_COORD_SINGLE})\s*@\s*({REGEX_COORD_SINGLE})', next_token, re.IGNORECASE)
+            if prev_match and next_match:
+                prev_pt = [convert_coord(prev_match.group(1)), convert_coord(prev_match.group(2))]
+                next_pt = [convert_coord(next_match.group(1)), convert_coord(next_match.group(2))]
+                arc_points = construct_arc(prev_pt, token, next_pt)
+                if arc_points is not None and len(arc_points) > 1:
+                    return arc_points
         else:
             print(f"Arc token at chain end: {token}")
     return []
@@ -222,7 +229,6 @@ def process_circle_token(token):
     if "cercle de" in token.lower() and "centré sur" in token.lower():
         circle_points = parse_circle_text(token)
         if circle_points is not None:
-            # Remove the last point to avoid duplication if needed
             return circle_points[:-1]
         else:
             print(f"Circle processing failed for token: {token}")
@@ -235,8 +241,7 @@ def process_circle_token(token):
 def process_plain_token(token):
     lower_token = token.lower()
     coordinates = []
-    # Check for multiple coordinate pairs in the token
-    pairs = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', token, re.IGNORECASE)
+    pairs = re.findall(REGEX_COORD_PAIR, token, re.IGNORECASE)
     if pairs and len(pairs) > 1:
         for pair in pairs:
             parts = [p.strip() for p in pair.split("@")]
@@ -244,12 +249,12 @@ def process_plain_token(token):
                 print(f"Invalid coordinate pair format in pair: {pair}")
                 continue
             lat_str, lon_str = parts[0], parts[1]
-            if not (re.fullmatch(r'\d{6,7}[NSEW]', lat_str) and re.fullmatch(r'\d{6,7}[NSEW]', lon_str)):
-                m_lat = re.search(r'(\d{6,7}[NSEW])', lat_str)
-                m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
+            if not (re.fullmatch(REGEX_COORD_SINGLE, lat_str) and re.fullmatch(REGEX_COORD_SINGLE, lon_str)):
+                m_lat = re.search(REGEX_COORD_SINGLE, lat_str)
+                m_lon = re.search(REGEX_COORD_SINGLE, lon_str)
                 if m_lat and m_lon:
-                    lat_str = m_lat.group(1)
-                    lon_str = m_lon.group(1)
+                    lat_str = m_lat.group(0)
+                    lon_str = m_lon.group(0)
                 else:
                     print(f"Invalid coordinate values in pair: {pair}")
                     continue
@@ -258,19 +263,18 @@ def process_plain_token(token):
             coordinates.append([lon, lat])
         return coordinates
     else:
-        # Expect a single coordinate pair separated by '@'
         parts = [p.strip() for p in token.split("@")]
         if len(parts) != 2:
             if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
                 print(f"Invalid coordinate pair format: {token}")
             return []
         lat_str, lon_str = parts[0], parts[1]
-        if not (re.fullmatch(r'\d{6,7}[NSEW]', lat_str) and re.fullmatch(r'\d{6,7}[NSEW]', lon_str)):
-            m_lat = re.search(r'(\d{6,7}[NSEW])', lat_str)
-            m_lon = re.search(r'(\d{6,7}[NSEW])', lon_str)
+        if not (re.fullmatch(REGEX_COORD_SINGLE, lat_str) and re.fullmatch(REGEX_COORD_SINGLE, lon_str)):
+            m_lat = re.search(REGEX_COORD_SINGLE, lat_str)
+            m_lon = re.search(REGEX_COORD_SINGLE, lon_str)
             if m_lat and m_lon:
-                lat_str = m_lat.group(1)
-                lon_str = m_lon.group(1)
+                lat_str = m_lat.group(0)
+                lon_str = m_lon.group(0)
             else:
                 print(f"Invalid coordinate values: {token}")
                 return []
@@ -315,151 +319,164 @@ def process_coordinates(all_coords):
     return final_points
 
 
-# Input and output file paths
-input_file = 'eaip_selected_tables_stage1_cleaned.html'
-geojson_file = 'airspace.geojson'
 
-# Parse the cleaned HTML file
-with open(input_file, 'r', encoding='utf-8') as f:
-    soup = BeautifulSoup(f, 'html.parser')
 
-features = []
+def create_geojson_feature(name, polygon_points, icao_class, upperAltitude, lowerAltitude, radio, schedule, restrictions, remarks):
+    return {
+        "type": "Feature",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [polygon_points]
+        },
+        "properties": {
+            "name": name,
+            "icaoClass": icao_class,
+            "upperAltitude": upperAltitude,
+            "lowerAltitude": lowerAltitude,
+            "radio": radio,
+            "schedule": schedule,
+            "restrictions": restrictions,
+            "remarks": remarks
+        }
+    }
 
-# For every table container, process rows in document order to associate parsed rows with the previous parsed name row
-for container_index, container in enumerate(soup.select('.table-container')):
-    current_name = None
-    for tr in container.find_all('tr'):
-        classes = tr.get('class', [])
-        if 'parsed-name' in classes:
-            td = tr.find('td')
-            if td:
-                current_name = td.get_text(strip=True)
-        elif 'parsed-row' in classes:
-            icao_class = ""
-            upperAltitude = ""
-            lowerAltitude = ""
-            radio = ""
-            schedule = ""
-            restrictions = ""
-            remarks = ""
 
-            tds = tr.find_all('td')
-            if not tds:
-                continue
-            cell_text = tds[0].get_text(strip=True)
+def main(input_file, geojson_file):
+    # Parse the cleaned HTML file
+    with open(input_file, 'r', encoding='utf-8') as f:
+        soup = BeautifulSoup(f, 'html.parser')
 
-            if container_index in [0, 1, 2, 3, 12]:
-                icao_class = tds[1].get_text(strip=True)
-                altitude_text = tds[2].get_text(strip=True)
-                alt_parts = altitude_text.split("------------")
-                upperAltitude = alt_parts[0].strip()
-                lowerAltitude = alt_parts[1].strip()
-                radio = tds[3].get_text(strip=True)
-                remarks = tds[4].get_text(strip=True)
-            elif container_index == 4:
-                altitude_text = tds[1].get_text(strip=True)
-                alt_parts = altitude_text.split("------------")
-                upperAltitude = alt_parts[0].strip()
-                lowerAltitude = alt_parts[1].strip()
-                radio = tds[2].get_text(strip=True)
-                remarks = tds[3].get_text(strip=True)
-            elif container_index in [5, 6]:
-                altitude_text = tds[1].get_text(strip=True)
-                alt_parts = altitude_text.split("------------")
-                upperAltitude = alt_parts[0].strip()
-                lowerAltitude = alt_parts[1].strip()
-                schedule = tds[2].get_text(strip=True)
-                restrictions = tds[3].get_text(strip=True)
-                remarks = tds[4].get_text(strip=True)
-            elif container_index == 7:
-                altitude_text = tds[1].get_text(strip=True)
-                alt_parts = altitude_text.split("------------")
-                upperAltitude = alt_parts[0].strip()
-                lowerAltitude = alt_parts[1].strip()
-                restrictions = tds[2].get_text(strip=True)
-            elif container_index in [8, 9]:
-                altitude_text = tds[1].get_text(strip=True)
-                alt_parts = altitude_text.split("------------")
-                upperAltitude = alt_parts[0].strip()
-                lowerAltitude = alt_parts[1].strip()
-                schedule = tds[2].get_text(strip=True)
-                restrictions = tds[3].get_text(strip=True)
-                remarks = tds[4].get_text(strip=True)
-            elif container_index == 10:
-                altitude_text = tds[1].get_text(strip=True)
-                alt_parts = altitude_text.split("------------")
-                upperAltitude = alt_parts[0].strip()
-                lowerAltitude = alt_parts[1].strip()
-                remarks = tds[2].get_text(strip=True)
-            elif container_index == 11:
-                upperAltitude = tds[1].get_text(strip=True)
-                lowerAltitude = "GND"
-                restrictions = tds[2].get_text(strip=True)
-                remarks = tds[3].get_text(strip=True)
+    features = []
 
-            try:
-                clean_text = re.sub(r'[\x00-\x1F]+', ' ', cell_text)
-                clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                coords = json.loads(clean_text)
-            except Exception as e:
-                print(f"Error parsing coordinates: {e}")
-                print(f"Cell text: {cell_text}")
-                continue
+    # For every table container, process rows in document order to associate parsed rows with the previous parsed name row
+    for container_index, container in enumerate(soup.select('.table-container')):
+        current_name = None
+        for tr in container.find_all('tr'):
+            classes = tr.get('class', [])
+            if 'parsed-name' in classes:
+                td = tr.find('td')
+                if td:
+                    current_name = td.get_text(strip=True)
+            elif 'parsed-row' in classes:
+                icao_class = ""
+                upperAltitude = ""
+                lowerAltitude = ""
+                radio = ""
+                schedule = ""
+                restrictions = ""
+                remarks = ""
 
-            if current_name and (any(x in current_name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) \
-               and isinstance(coords, list) and len(coords) == 1:
-                if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
-                    pass
-                elif any(x in current_name.lower() for x in [" para "]):
-                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
-                    if len(match_list) == 1:
-                        coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
-                elif any(x in current_name.lower() for x in [" treuillage "]):
-                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
-                    if len(match_list) == 1:
-                        coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
-                elif any(x in current_name.lower() for x in [" aéromodélisme "]):
-                    match_list = re.findall(r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]', coords[0], re.IGNORECASE)
-                    if len(match_list) == 1:
-                        coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
-                else:
+                tds = tr.find_all('td')
+                if not tds:
+                    continue
+                cell_text = tds[0].get_text(strip=True)
+
+                if container_index in [0, 1, 2, 3, 12]:
+                    icao_class = tds[1].get_text(strip=True)
+                    altitude_text = tds[2].get_text(strip=True)
+                    alt_parts = altitude_text.split("------------")
+                    upperAltitude = alt_parts[0].strip()
+                    lowerAltitude = alt_parts[1].strip()
+                    radio = tds[3].get_text(strip=True)
+                    remarks = tds[4].get_text(strip=True)
+                elif container_index == 4:
+                    altitude_text = tds[1].get_text(strip=True)
+                    alt_parts = altitude_text.split("------------")
+                    upperAltitude = alt_parts[0].strip()
+                    lowerAltitude = alt_parts[1].strip()
+                    radio = tds[2].get_text(strip=True)
+                    remarks = tds[3].get_text(strip=True)
+                elif container_index in [5, 6]:
+                    altitude_text = tds[1].get_text(strip=True)
+                    alt_parts = altitude_text.split("------------")
+                    upperAltitude = alt_parts[0].strip()
+                    lowerAltitude = alt_parts[1].strip()
+                    schedule = tds[2].get_text(strip=True)
+                    restrictions = tds[3].get_text(strip=True)
+                    remarks = tds[4].get_text(strip=True)
+                elif container_index == 7:
+                    altitude_text = tds[1].get_text(strip=True)
+                    alt_parts = altitude_text.split("------------")
+                    upperAltitude = alt_parts[0].strip()
+                    lowerAltitude = alt_parts[1].strip()
+                    restrictions = tds[2].get_text(strip=True)
+                elif container_index in [8, 9]:
+                    altitude_text = tds[1].get_text(strip=True)
+                    alt_parts = altitude_text.split("------------")
+                    upperAltitude = alt_parts[0].strip()
+                    lowerAltitude = alt_parts[1].strip()
+                    schedule = tds[2].get_text(strip=True)
+                    restrictions = tds[3].get_text(strip=True)
+                    remarks = tds[4].get_text(strip=True)
+                elif container_index == 10:
+                    altitude_text = tds[1].get_text(strip=True)
+                    alt_parts = altitude_text.split("------------")
+                    upperAltitude = alt_parts[0].strip()
+                    lowerAltitude = alt_parts[1].strip()
+                    remarks = tds[2].get_text(strip=True)
+                elif container_index == 11:
+                    upperAltitude = tds[1].get_text(strip=True)
+                    lowerAltitude = "GND"
+                    restrictions = tds[2].get_text(strip=True)
+                    remarks = tds[3].get_text(strip=True)
+
+                try:
+                    clean_text = re.sub(r'[\x00-\x1F]+', ' ', cell_text)
+                    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+                    coords = json.loads(clean_text)
+                except Exception as e:
+                    print(f"Error parsing coordinates: {e}")
+                    print(f"Cell text: {cell_text}")
                     continue
 
-            polygon_points = process_coordinates(coords)
-            if polygon_points is None:
-                continue
+                if current_name and (any(x in current_name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) \
+                    and isinstance(coords, list) and len(coords) == 1:
+                    if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
+                        pass
+                    elif any(x in current_name.lower() for x in [" para"]):
+                        match_list = re.findall(REGEX_COORD_PAIR, coords[0], re.IGNORECASE)
+                        if len(match_list) == 1:
+                            coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
+                    elif any(x in current_name.lower() for x in [" treuillage"]):
+                        match_list = re.findall(REGEX_COORD_PAIR, coords[0], re.IGNORECASE)
+                        if len(match_list) == 1:
+                            coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
+                    elif any(x in current_name.lower() for x in [" aéromodélisme"]):
+                        match_list = re.findall(REGEX_COORD_PAIR, coords[0], re.IGNORECASE)
+                        if len(match_list) == 1:
+                            coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
+                    else:
+                        continue
 
-            feature = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [polygon_points]
-                },
-                "properties": {
-                    "name": current_name,
-                    "icaoClass": icao_class,
-                    "upperAltitude": upperAltitude,
-                    "lowerAltitude": lowerAltitude,
-                    "radio": radio,
-                    "schedule": schedule,
-                    "restrictions": restrictions,
-                    "remarks": remarks
-                }
-            }
-            # if "TMZ" in current_name:
-            features.append(feature)
+                polygon_points = process_coordinates(coords)
+                if polygon_points is None:
+                    continue
 
-# Create FeatureCollection
-geojson = {
-    "type": "FeatureCollection",
-    "features": features
-}
+                # Create the GeoJSON feature using the new function
+                feature = create_geojson_feature(current_name, polygon_points, icao_class, upperAltitude, lowerAltitude, radio, schedule, restrictions, remarks)
+                features.append(feature)
 
-# Write to geojson file
-with open(geojson_file, 'w', encoding='utf-8') as f:
-    json.dump(geojson, f, indent=2)
+    # Create FeatureCollection
+    geojson = {
+        "type": "FeatureCollection",
+        "features": features
+    }
 
-print(f"Saved {len(features)} features to '{geojson_file}'")
+    # Write to geojson file
+    with open(geojson_file, 'w', encoding='utf-8') as f:
+        json.dump(geojson, f, indent=2)
+
+    print(f"Saved {len(features)} features to '{geojson_file}'")
+    
+
+
+
+if __name__ == '__main__':
+    # Input and output file paths
+    input_file = 'eaip_selected_tables_stage1_cleaned.html'
+    geojson_file = 'airspace.geojson'
+
+    main(input_file, geojson_file)
 
 
 # Invalid coordinate pair format: ['502500N , 0022400E Verticale N41 au Sud-Est de la commune axe 080/260 de 1km de part et dautre du point 502500N,0022400E']
