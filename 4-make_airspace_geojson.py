@@ -862,7 +862,7 @@ def main(input_file, geojson_file, border_files, parks_file):
                         print(f"[WARN] Empty coords: {current_name} - {polygon_points}")
                     elif len(polygon_points) == 1:
                         points += 1
-                        # print(f"[WARN] Point: {current_name} - {polygon_points}")
+                        print(f"[WARN] Point: {current_name} - {polygon_points}")
                     elif len(polygon_points) == 2:
                         segments += 1
                         print(f"[WARN] Segment: {current_name} - {polygon_points}")
