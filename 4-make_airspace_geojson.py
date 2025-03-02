@@ -358,11 +358,6 @@ def make_triplet(token,prev_token,next_token):
         "next_token": next_token
     }
 
-def france_only(triplet):
-    if "frontière franco-" in triplet["token"].lower():
-        return True
-    else:
-        return False
 
 def get_shortest_path_for_triplet(triplet, border_file):
     """For a given triplet with 'prev_token' and 'next_token' in 'lat@lon' format,
@@ -440,7 +435,7 @@ def process_france_token(token,prev_token,next_token,border_files):
     points=[]
     # print(f"[DEBUG] Processing France token: {token}")
     triplet = make_triplet(token,prev_token,next_token)
-    if france_only(triplet):
+    if "frontière franco-" in triplet["token"].lower():
         # print(f"[DEBUG] Processing France token: {token}")
         if is_pure_lonLat(triplet["prev_token"]) and is_pure_lonLat(triplet["next_token"]):
             points,success = get_shortest_path_for_triplet(triplet,border_files["france"])

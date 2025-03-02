@@ -2,3 +2,4 @@ aip/
 *.html
 *.json
 *.txt
+*.geojson
