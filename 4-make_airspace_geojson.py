@@ -3,13 +3,14 @@ import re
 from bs4 import BeautifulSoup
 import math
 from preprocess_border_file import read_border_geojson
+
 # ===============================
 # Regex Patterns
 # ===============================
 
 REGEX_ARC = r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?'
 REGEX_CIRCLE = r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?'
-REGEX_COORD_PAIR = r'\d{6,7}[NSEW]\s*@\s*\d{6,7}[NSEW]'
+REGEX_COORD_PAIR = r'\d{6}[NSEW]\s*@\s*\d{7}[NSEW]'
 REGEX_COORD_SINGLE = r'\d{6,7}[NSEW]'
 
 # ===============================
@@ -47,47 +48,32 @@ def convert_coord(coord_str):
     if hemi in ('S', 'W'):
         decimal = -decimal
     return decimal
-
-# New function to parse textual arc descriptions and return polygon coordinates
-
-
-def parse_arc_text(text):
-    # Use the centralized regex constant
-    m = re.search(REGEX_ARC, text, re.IGNORECASE)
-    if not m:
-        return None
-    direction = m.group(1).lower()
-    radius_value = float(m.group(2))
-    unit = m.group(3).strip()
-    # Convert to nautical miles if unit is meters
-    if unit.lower() == 'm':
-        radius_nm = radius_value / 1852
-    elif unit.lower() == 'km':
-        radius_nm = radius_value * 0.539957
+def format_dms(value, is_latitude):
+    """Convert a decimal degree value to a DMS string.
+    For latitude, format is DDMMSS[NS] (e.g., 474600N).
+    For longitude, format is DDDMMSS[EW] (e.g., 0073200E).
+    """
+    abs_val = abs(value)
+    deg = int(abs_val)
+    rem = (abs_val - deg) * 60
+    minutes = int(rem)
+    seconds = int(round((rem - minutes) * 60))
+    # Handle case where rounding seconds results in 60
+    if seconds == 60:
+        seconds = 0
+        minutes += 1
+    if minutes == 60:
+        minutes = 0
+        deg += 1
+    if is_latitude:
+        # For latitude, degrees should be 2 digits
+        hem = 'N' if value >= 0 else 'S'
+        return f"{deg:02d}{minutes:02d}{seconds:02d}{hem}"
     else:
-        radius_nm = radius_value
-    lat_str = m.group(4).strip()
-    lon_str = m.group(5).strip() if m.group(5) else None
-    if not lon_str:
-        return None
-    lat_center = convert_coord(lat_str)
-    lon_center = convert_coord(lon_str)
-    # Convert radius in nautical miles to degrees (approximation)
-    r_deg_lat = radius_nm / 60  # approx change in latitude
-    r_deg_lon = r_deg_lat / math.cos(math.radians(lat_center))
-    # Determine number of segments
-    num_segments = max(12, int(radius_nm * 12))
-    points = []
-    for i in range(num_segments):
-        angle_deg = 360 / num_segments * i
-        angle_rad = math.radians(angle_deg)
-        lon = lon_center + r_deg_lon * math.cos(angle_rad)
-        lat = lat_center + r_deg_lat * math.sin(angle_rad)
-        points.append([lon, lat])
-    points.append(points[0])  # ensure polygon is closed
-    if direction == 'anti-horaire':
-        points = list(reversed(points))
-    return points
+        # For longitude, degrees should be 3 digits
+        hem = 'E' if value >= 0 else 'W'
+        return f"{deg:03d}{minutes:02d}{seconds:02d}{hem}"
+# New function to parse textual arc descriptions and return polygon coordinates
 
 
 def parse_circle_text(text):
@@ -196,10 +182,12 @@ def construct_arc(prev_pt, arc_text, next_pt):
 
 # New helper function to process an arc token
 # Expects the current token, previous token, and next token
-# Returns a list of coordinates if successful, else an empty list
+# Returns a tuple (points, complete) where points is a list of coordinates if successful, else an empty list
+# and complete is a boolean indicating whether the process was successful
 
 def process_arc_token(token, prev_token, next_token):
     lower_token = token.lower()
+    # Default return is an empty list with failure flag
     if "arc horaire" in lower_token or "arc anti-horaire" in lower_token:
         if "arc" in prev_token.lower():
             print(f"Previous token is also an arc: {prev_token}")
@@ -208,40 +196,103 @@ def process_arc_token(token, prev_token, next_token):
         m_prev = re.search(REGEX_COORD_PAIR, prev_token, re.IGNORECASE)
         m_next = re.search(REGEX_COORD_PAIR, next_token, re.IGNORECASE)
         if m_prev and m_next:
-            # Extract first coordinate pair from the match using raw f-string
+            # Extract the first coordinate pair from each token
             prev_match = re.search(rf'({REGEX_COORD_SINGLE})\s*@\s*({REGEX_COORD_SINGLE})', prev_token, re.IGNORECASE)
             next_match = re.search(rf'({REGEX_COORD_SINGLE})\s*@\s*({REGEX_COORD_SINGLE})', next_token, re.IGNORECASE)
             if prev_match and next_match:
-                prev_pt = [convert_coord(prev_match.group(1)), convert_coord(prev_match.group(2))]
-                next_pt = [convert_coord(next_match.group(1)), convert_coord(next_match.group(2))]
+                try:
+                    prev_pt = [convert_coord(prev_match.group(1)), convert_coord(prev_match.group(2))]
+                    next_pt = [convert_coord(next_match.group(1)), convert_coord(next_match.group(2))]
+                except Exception as e:
+                    print(f"Error converting coordinates for arc token: {e}")
+                    return ([], False)
                 arc_points = construct_arc(prev_pt, token, next_pt)
                 if arc_points is not None and len(arc_points) > 1:
-                    return arc_points
+                    return (arc_points, True)
         else:
             print(f"Arc token at chain end: {token}")
-    return []
+    return ([], False)
 
 
 # New helper function to process a circle token
-# Returns a list of coordinates if successful, else an empty list
+# Returns a tuple (points, complete) where points is a list of coordinates if successful, else an empty list
+# and complete is a boolean indicating whether the process was successful
 
 def process_circle_token(token):
     if "cercle de" in token.lower() and "centré sur" in token.lower():
         circle_points = parse_circle_text(token)
         if circle_points is not None:
-            return circle_points[:-1]
+            # Remove the duplicate closing coordinate and report success
+            return (circle_points[:-1], True)
         else:
             print(f"Circle processing failed for token: {token}")
-    return []
+            return ([], False)
+    return ([], False)
 
 
 # New helper function to process a plain coordinate token
 # Returns a list of coordinates (usually a single pair or multiple pairs) if successful, else an empty list
+def get_coordinates(token):
+    return re.findall(REGEX_COORD_PAIR, token, re.IGNORECASE)
 
-def process_plain_token(token):
-    lower_token = token.lower()
+def get_lonLat  (token):
+    pairs = get_coordinates(token)
+    if pairs and len(pairs) > 1:
+        for pair in pairs:
+            parts = [p.strip() for p in pair.split("@")]
+            if len(parts) != 2:
+                print(f"Invalid coordinate pair format in pair: {pair}")
+                continue
+            lat_str, lon_str = parts[0], parts[1]
+            if not (re.fullmatch(REGEX_COORD_SINGLE, lat_str) and re.fullmatch(REGEX_COORD_SINGLE, lon_str)):
+                m_lat = re.search(REGEX_COORD_SINGLE, lat_str)
+                m_lon = re.search(REGEX_COORD_SINGLE, lon_str)
+                if m_lat and m_lon:
+                    lat_str = m_lat.group(0)
+                    lon_str = m_lon.group(0)
+                else:
+                    print(f"Invalid coordinate values in pair: {pair}")
+                    continue
+            lat = convert_coord(lat_str)
+            lon = convert_coord(lon_str)
+            return [lon, lat]
+    else:
+        parts = [p.strip() for p in token.split("@")]
+        if len(parts) != 2:
+            if not any(x in token for x in ["Frontière", "atlantique", "Côte", "Parc", "Axe"]):
+                print(f"Invalid coordinate pair format: {token}")
+            return []
+        lat_str, lon_str = parts[0], parts[1]
+        if not (re.fullmatch(REGEX_COORD_SINGLE, lat_str) and re.fullmatch(REGEX_COORD_SINGLE, lon_str)):
+            m_lat = re.search(REGEX_COORD_SINGLE, lat_str)
+            m_lon = re.search(REGEX_COORD_SINGLE, lon_str)
+            if m_lat and m_lon:
+                lat_str = m_lat.group(0)
+                lon_str = m_lon.group(0)
+            else:
+                print(f"Invalid coordinate values: {token}")
+                return []
+        lat = convert_coord(lat_str)
+        lon = convert_coord(lon_str)
+        return [[lon, lat]]
+
+def substract_lonLat(text):
+    m = re.compile(REGEX_COORD_PAIR).search(text)
+    if m:
+        extracted = m.group(0)
+        remaining_text = text.replace(extracted, '').strip()
+        return extracted,remaining_text
+    else:
+        return None,text
+
+def is_pure_lonLat(token):
+    lonLat, rest = substract_lonLat(token)
+    return lonLat and not rest
+
+def split_twin_tokens(token):
+    # lower_token = token.lower()
     coordinates = []
-    pairs = re.findall(REGEX_COORD_PAIR, token, re.IGNORECASE)
+    pairs = get_coordinates(token)
     if pairs and len(pairs) > 1:
         for pair in pairs:
             parts = [p.strip() for p in pair.split("@")]
@@ -282,51 +333,171 @@ def process_plain_token(token):
         lon = convert_coord(lon_str)
         return [[lon, lat]]
 
+def make_triplet(token,prev_token,next_token):
+    return {
+        "token": token,
+        "prev_token": prev_token,
+        "next_token": next_token
+    }
 
-def process_france_token(token,border_coords):
-    # TODO: process france token
-    pass
+def france_only(triplet):
+    if "frontière franco-" in triplet["token"].lower():
+        return True
+    else:
+        return False
 
+def get_shortest_path_for_triplet(triplet, border_coords):
+    """For a given triplet with 'prev_token' and 'next_token' in 'lat@lon' format,
+    find the closest points in border_coords and return the shortest path between them
+    as a list of coordinate pairs [lon, lat].
+    border_coords is a list of [lon, lat] pairs.
+    """
+    # Convert triplet beginning and end to [lon, lat] using convert_coord
+    try:
+        b_lat_str, b_lon_str = triplet["prev_token"].split('@')
+        b_lat = convert_coord(b_lat_str)
+        b_lon = convert_coord(b_lon_str)
+        triplet_begin = (b_lon, b_lat)  # border_coords order
+    except Exception as e:
+        return [], False
+    try:
+        e_lat_str, e_lon_str = triplet["next_token"].split('@')
+        e_lat = convert_coord(e_lat_str)
+        e_lon = convert_coord(e_lon_str)
+        triplet_end = (e_lon, e_lat)  # border_coords order
+    except Exception as e:
+        return [], False
+    
+    def find_closest_index(pt, coords):
+        best_idx = None
+        best_dist = None
+        for idx, coord in enumerate(coords):
+            dist = (pt[0] - coord[0])**2 + (pt[1] - coord[1])**2
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_idx = idx
+        return best_idx
+    
+    i_begin = find_closest_index(triplet_begin, border_coords)
+    i_end = find_closest_index(triplet_end, border_coords)
+    if i_begin is None or i_end is None:
+        print(f"[DEBUG] No closest index found for triplet {triplet['token']}")
+        return [], False
+    
+    # print(triplet["prev_token"],triplet["next_token"])
+    # print(border_coords[i_begin],border_coords[i_end])
+    # print(i_begin,i_end)
+    
+    def circular_path(i, j, coords):
+        if i <= j:
+            return coords[i:j+1]
+        else:
+            return coords[i:] + coords[:j+1]
+    
+    path1 = circular_path(i_begin, i_end, border_coords)
+    path2 = circular_path(i_end, i_begin, border_coords)[::-1]  # reverse to go from begin to end
+    
+    def path_length(path):
+        total = 0.0
+        for k in range(len(path) - 1):
+            dx = path[k+1][0] - path[k][0]
+            dy = path[k+1][1] - path[k][1]
+            total += (dx*dx + dy*dy)**0.5
+        return total
+    
+    length1 = path_length(path1)
+    length2 = path_length(path2)
+    chosen_path = path1 if length1 <= length2 else path2
+    
+    if len(chosen_path) == 0:
+        return [], False
+    return chosen_path, True
+
+def process_france_token(token,prev_token,next_token,border_coords):
+    points=[]
+    # print(f"[DEBUG] Processing France token: {token}")
+    triplet = make_triplet(token,prev_token,next_token)
+    if france_only(triplet):
+        # print(f"[DEBUG] Processing France token: {token}")
+        if is_pure_lonLat(prev_token) and is_pure_lonLat(next_token):
+            points,success = get_shortest_path_for_triplet(triplet,border_coords)
+            # print(len(points))
+            if len(points) == 0: print(f"[WARN] No points found for triplet: {triplet}")
+            return points,success
+        else:
+            return points,False
+    return [], False
 
 # Refactored process_coordinates using the new helper functions
 
-def process_coordinates(all_coords,border_coords):
+def process_coordinates(name,all_coords,border_coords):
     """
     Expects all_coords to be a list of coordinate tokens.
     Processes each token using arc, circle, or plain coordinate logic.
     Returns a list of points forming a closed polygon, or None if invalid.
     """
     final_points = []
+    had_missing = False
     i = 0
     total = len(all_coords)
+
+    if name and (any(x in name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) \
+        and isinstance(all_coords, list) and total == 1:
+        if 'cercle de' in all_coords[0].lower() and 'de rayon centré sur' in all_coords[0].lower():
+            pass
+        elif any(x in name.lower() for x in [" para"]):
+            match_list = re.findall(REGEX_COORD_PAIR, all_coords[0], re.IGNORECASE)
+            if len(match_list) == 1:
+                all_coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
+        elif any(x in name.lower() for x in [" treuillage"]):
+            match_list = re.findall(REGEX_COORD_PAIR, all_coords[0], re.IGNORECASE)
+            if len(match_list) == 1:
+                all_coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
+        elif any(x in name.lower() for x in [" aéromodélisme"]):
+            match_list = re.findall(REGEX_COORD_PAIR, all_coords[0], re.IGNORECASE)
+            if len(match_list) == 1:
+                all_coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
+        else:
+            # case not para treuillage aéromodélisme -> voltige and not cercle and only one token
+            return ([], False)
+
+
+
     while i < total:
         token = all_coords[i]
-        lower_token = token.lower()
-        points = []
-        if "arc horaire" in lower_token or "arc anti-horaire" in lower_token:
-            prev_index = i - 1 if i != 0 else total - 1
-            next_index = i + 1 if i != total - 1 else 0
-            prev_token = all_coords[prev_index]
-            next_token = all_coords[next_index]
-            points = process_arc_token(token, prev_token, next_token)
-        elif "cercle de" in lower_token and "centré sur" in lower_token:
-            points = process_circle_token(token)
-        elif "frontière" in lower_token or "atlantique" in lower_token or "côte" in lower_token:
-            points = process_france_token(token,border_coords)
-        elif "parc" in lower_token or "axe" in lower_token:
-            # print(f"need to process park and axe")
-            pass
+        token_points = []
+        prev_index = i - 1 if i != 0 else total - 1
+        next_index = i + 1 if i != total - 1 else 0
+        prev_token = all_coords[prev_index]
+        next_token = all_coords[next_index]
+        if "arc horaire" in token.lower() or "arc anti-horaire" in token.lower():
+            token_points, complete = process_arc_token(token, prev_token, next_token)
+            if not complete: 
+                had_missing = True
+                # print(f"[WARN] Unprocessed item: {name} - {token}")
+        elif "cercle de" in token.lower() and "centré sur" in token.lower():
+            token_points, complete = process_circle_token(token)
+            if not complete: 
+                had_missing = True
+                # print(f"[WARN] Unprocessed item: {name} - {token}")
+        elif "frontière" in token.lower():
+            token_points, complete = process_france_token(token, prev_token, next_token, border_coords)
+            if not complete:
+                had_missing = True
+                # print(f"[WARN] Unprocessed item: {name} - {token}")
+        elif "parc" in token.lower() or "axe" in token.lower() or "côte" in token.lower() or "atlantique" in token.lower():
+            had_missing = True
         else:
-            points = process_plain_token(token)
-        if points:
-            final_points.extend(points)
+            token_points = split_twin_tokens(token)
+            if len(token_points) == 0:
+                had_missing = True
+                # print(f"[WARN] token with no latLon: {token}")
+        if token_points:
+            final_points.extend(token_points)
         i += 1
-
-    if not final_points or len(final_points) < 2:
-        return None
     if final_points[0] != final_points[-1]:
         final_points.append(final_points[0])
-    return final_points
+    return (final_points, had_missing)
 
 
 
@@ -349,7 +520,25 @@ def create_geojson_feature(name, polygon_points, icao_class, upperAltitude, lowe
             "remarks": remarks
         }
     }
-
+def valid_ring(ring):
+    """Check if ring is a valid linear ring as defined by GeoJSON:
+    It has at least four coordinate pairs
+    The first and last coordinate are equal
+    Each coordinate is a list/tuple of two numbers
+    """
+    if not isinstance(ring, (list, tuple)) or len(ring) < 4:
+        print(f"ring not valid: format")
+        return False
+    if ring[0] != ring[-1]:
+        print(f"ring not closed")
+        # Automatically close the ring if needed; alternatively, return False
+        return False
+    for pt in ring:
+        if not (isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(v, (int, float)) for v in pt)):
+            print(pt,ring)
+            print(f"ring not valid: coords format")
+            return False
+    return True
 
 def main(input_file, geojson_file,border_file):
     # Parse the cleaned HTML file
@@ -357,8 +546,15 @@ def main(input_file, geojson_file,border_file):
         soup = BeautifulSoup(f, 'html.parser')
 
     features = []
+    airspaces = 0
     border_coords = read_border_geojson(border_file)
-
+    empty_airspaces = 0
+    incomplete_airspaces = 0
+    skipped_airspaces = 0
+    empty_coords = 0
+    points=0
+    segments=0
+    not_valid_rings = 0
     # For every table container, process rows in document order to associate parsed rows with the previous parsed name row
     for container_index, container in enumerate(soup.select('.table-container')):
         current_name = None
@@ -369,6 +565,7 @@ def main(input_file, geojson_file,border_file):
                 if td:
                     current_name = td.get_text(strip=True)
             elif 'parsed-row' in classes:
+                airspaces += 1
                 icao_class = ""
                 upperAltitude = ""
                 lowerAltitude = ""
@@ -440,32 +637,45 @@ def main(input_file, geojson_file,border_file):
                     print(f"Cell text: {cell_text}")
                     continue
 
-                if current_name and (any(x in current_name.lower() for x in [" para ", " voltige ", " treuillage ", " aéromodélisme "])) \
-                    and isinstance(coords, list) and len(coords) == 1:
-                    if 'cercle de' in coords[0].lower() and 'de rayon centré sur' in coords[0].lower():
-                        pass
-                    elif any(x in current_name.lower() for x in [" para"]):
-                        match_list = re.findall(REGEX_COORD_PAIR, coords[0], re.IGNORECASE)
-                        if len(match_list) == 1:
-                            coords = [f"cercle de 3 NM de rayon centré sur {match_list[0]}"]
-                    elif any(x in current_name.lower() for x in [" treuillage"]):
-                        match_list = re.findall(REGEX_COORD_PAIR, coords[0], re.IGNORECASE)
-                        if len(match_list) == 1:
-                            coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
-                    elif any(x in current_name.lower() for x in [" aéromodélisme"]):
-                        match_list = re.findall(REGEX_COORD_PAIR, coords[0], re.IGNORECASE)
-                        if len(match_list) == 1:
-                            coords = [f"cercle de 600m de rayon centré sur {match_list[0]}"]
-                    else:
-                        continue
-
-                polygon_points = process_coordinates(coords,border_coords)
-                if polygon_points is None:
+                if len(coords) == 0:
+                    empty_airspaces += 1
+                    continue
+                polygon_points, had_missing = process_coordinates(current_name, coords, border_coords)
+                if had_missing:
+                    incomplete_airspaces += 1
+                    continue
+                if not had_missing and len(polygon_points) < 4:
+                    if len(polygon_points) == 0:
+                        empty_coords += 1
+                        # print(f"[WARN] Empty coords: {current_name} - {polygon_points}")
+                    elif len(polygon_points) == 1:
+                        points += 1
+                        # print(f"[WARN] Point: {current_name} - {polygon_points}")
+                    elif len(polygon_points) == 2:
+                        segments += 1
+                        # print(f"[WARN] Segment: {current_name} - {polygon_points}")
+                    elif len(polygon_points) == 3:
+                        segments += 1  # triangle case, but not valid as linear ring
+                        # print(f"[WARN] Triangle (invalid linear ring): {current_name} - {polygon_points}")
+                    skipped_airspaces += 1
                     continue
 
                 # Create the GeoJSON feature using the new function
+                if not valid_ring(polygon_points):
+                    not_valid_rings += 1
+                    continue
                 feature = create_geojson_feature(current_name, polygon_points, icao_class, upperAltitude, lowerAltitude, radio, schedule, restrictions, remarks)
-                features.append(feature)
+                if any(token and "frontière" in token.lower() for token in coords if isinstance(token, str)):
+                    features.append(feature)
+
+    print(f"[INFO] {airspaces} airspaces encountered")
+    print(f"[INFO] Exported {len(features)} features")
+    total_missing =  incomplete_airspaces+skipped_airspaces
+    print(f"[INFO] Skipped airspaces (no valid polygon): {skipped_airspaces} of which {empty_coords} empty coords, {points} points, {segments} segments")
+    print(f"[INFO] Empty airspaces: {empty_airspaces}")
+    print(f"[INFO] Not valid rings: {not_valid_rings}")
+    print(f"[INFO] Airspaces with incomplete processing and not exported: {incomplete_airspaces}")
+    print(f"[WARNING] Total missing airspaces: {total_missing} ({airspaces - len(features)} expected)")
 
     # Create FeatureCollection
     geojson = {
