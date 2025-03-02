@@ -2,7 +2,7 @@ import json
 import re
 from bs4 import BeautifulSoup
 import math
-from preprocess_border_file import read_border_geojson
+# from preprocess_border_file import read_border_geojson
 
 # ===============================
 # Regex Patterns
@@ -12,6 +12,7 @@ REGEX_ARC = r'arc\s+(anti-horaire|horaire)\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+ra
 REGEX_CIRCLE = r'cercle\s+de\s+([\d.]+)\s*(NM|m|km)\s+de\s+rayon\s+centré\s+sur\s+(\d{6}[NS])(?:\s*@\s*(\d{7}[EW]))?'
 REGEX_COORD_PAIR = r'\d{6}[NSEW]\s*@\s*\d{7}[NSEW]'
 REGEX_COORD_SINGLE = r'\d{6,7}[NSEW]'
+
 
 # ===============================
 # Coordinate Conversion and Parsing Helper Functions
@@ -74,7 +75,31 @@ def format_dms(value, is_latitude):
         hem = 'E' if value >= 0 else 'W'
         return f"{deg:03d}{minutes:02d}{seconds:02d}{hem}"
 # New function to parse textual arc descriptions and return polygon coordinates
-
+def read_border_geojson(border_file):
+    try:
+        with open(border_file, 'r', encoding='utf-8') as bf:
+            france_geo = json.load(bf)
+            if 'features' in france_geo and len(france_geo['features']) > 0:
+                feature = france_geo['features'][0]
+                geom = feature.get('geometry', {})
+                geo_type = geom.get('type', '').lower()
+                if geo_type == 'polygon':
+                    border_coords = geom.get('coordinates', [])
+                    if border_coords and isinstance(border_coords, list):
+                        border_coords = border_coords[0]
+                    else:
+                        border_coords = []
+                elif geo_type == 'linestring':
+                    border_coords = geom.get('coordinates', [])
+                else:
+                    border_coords = []
+            else:
+                border_coords = []
+            # print(f"[INFO] Loaded border from '{border_file}' with {len(border_coords)} coordinates.")
+            return border_coords
+    except Exception as e:
+        print(f"[ERROR] Error reading {border_file}: {e}")
+        return []
 
 def parse_circle_text(text):
     m = re.search(REGEX_CIRCLE, text, re.IGNORECASE)
@@ -180,10 +205,6 @@ def construct_arc(prev_pt, arc_text, next_pt):
     return arc_points
 
 
-# New helper function to process an arc token
-# Expects the current token, previous token, and next token
-# Returns a tuple (points, complete) where points is a list of coordinates if successful, else an empty list
-# and complete is a boolean indicating whether the process was successful
 
 def process_arc_token(token, prev_token, next_token):
     lower_token = token.lower()
@@ -214,9 +235,6 @@ def process_arc_token(token, prev_token, next_token):
     return ([], False)
 
 
-# New helper function to process a circle token
-# Returns a tuple (points, complete) where points is a list of coordinates if successful, else an empty list
-# and complete is a boolean indicating whether the process was successful
 
 def process_circle_token(token):
     if "cercle de" in token.lower() and "centré sur" in token.lower():
@@ -230,8 +248,6 @@ def process_circle_token(token):
     return ([], False)
 
 
-# New helper function to process a plain coordinate token
-# Returns a list of coordinates (usually a single pair or multiple pairs) if successful, else an empty list
 def get_coordinates(token):
     return re.findall(REGEX_COORD_PAIR, token, re.IGNORECASE)
 
@@ -334,6 +350,8 @@ def split_twin_tokens(token):
         return [[lon, lat]]
 
 def make_triplet(token,prev_token,next_token):
+    prev_token,rest = substract_lonLat(prev_token)
+    next_token,rest = substract_lonLat(next_token)
     return {
         "token": token,
         "prev_token": prev_token,
@@ -346,12 +364,17 @@ def france_only(triplet):
     else:
         return False
 
-def get_shortest_path_for_triplet(triplet, border_coords):
+def get_shortest_path_for_triplet(triplet, border_file):
     """For a given triplet with 'prev_token' and 'next_token' in 'lat@lon' format,
     find the closest points in border_coords and return the shortest path between them
     as a list of coordinate pairs [lon, lat].
     border_coords is a list of [lon, lat] pairs.
     """
+    try:
+        border_coords = read_border_geojson(border_file)
+    except Exception as e:
+        print(f"[ERROR] Failed to read border file: {e}")
+        return [], False
     # Convert triplet beginning and end to [lon, lat] using convert_coord
     try:
         b_lat_str, b_lon_str = triplet["prev_token"].split('@')
@@ -413,24 +436,43 @@ def get_shortest_path_for_triplet(triplet, border_coords):
         return [], False
     return chosen_path, True
 
-def process_france_token(token,prev_token,next_token,border_coords):
+def process_france_token(token,prev_token,next_token,border_files):
     points=[]
     # print(f"[DEBUG] Processing France token: {token}")
     triplet = make_triplet(token,prev_token,next_token)
     if france_only(triplet):
         # print(f"[DEBUG] Processing France token: {token}")
-        if is_pure_lonLat(prev_token) and is_pure_lonLat(next_token):
-            points,success = get_shortest_path_for_triplet(triplet,border_coords)
-            # print(len(points))
+        if is_pure_lonLat(triplet["prev_token"]) and is_pure_lonLat(triplet["next_token"]):
+            points,success = get_shortest_path_for_triplet(triplet,border_files["france"])
             if len(points) == 0: print(f"[WARN] No points found for triplet: {triplet}")
             return points,success
         else:
+            print(f"[WARN] Not pure lonLat before and after: {prev_token} - {token} - {next_token}")
             return points,False
+    elif "frontière" in triplet["token"].lower() and "germano-suisse" in triplet["token"].lower():
+        if is_pure_lonLat(triplet["prev_token"]) and is_pure_lonLat(triplet["next_token"]):
+            points,success = get_shortest_path_for_triplet(triplet,border_files["switzerland"])
+            if len(points) == 0: print(f"[WARN] No points found for triplet: {triplet}")
+            return points,success
+        else:
+            print(f"[WARN] Not pure lonLat before and after: {token}")
+            return points,False
+    elif "frontière hispano-andorrane" in triplet["token"].lower():
+        if is_pure_lonLat(triplet["prev_token"]) and is_pure_lonLat(triplet["next_token"]):
+            points,success = get_shortest_path_for_triplet(triplet,border_files["andorra"])
+            if len(points) == 0: print(f"[WARN] No points found for triplet: {triplet}")
+            return points,success
+        else:
+            print(f"[WARN] Not pure lonLat before and after: {triplet['prev_token']} - {triplet['token']} - {triplet['next_token']}")
+            print(f"[----] We hade to substract: {prev_token} - {token} - {next_token}")
+            return points,False
+    else:
+        print(f"[WARN] Not a France token: {token}")
     return [], False
 
 # Refactored process_coordinates using the new helper functions
 
-def process_coordinates(name,all_coords,border_coords):
+def process_coordinates(name,all_coords,border_files):
     """
     Expects all_coords to be a list of coordinate tokens.
     Processes each token using arc, circle, or plain coordinate logic.
@@ -481,7 +523,7 @@ def process_coordinates(name,all_coords,border_coords):
                 had_missing = True
                 # print(f"[WARN] Unprocessed item: {name} - {token}")
         elif "frontière" in token.lower():
-            token_points, complete = process_france_token(token, prev_token, next_token, border_coords)
+            token_points, complete = process_france_token(token, prev_token, next_token, border_files)
             if not complete:
                 had_missing = True
                 # print(f"[WARN] Unprocessed item: {name} - {token}")
@@ -540,20 +582,19 @@ def valid_ring(ring):
             return False
     return True
 
-def main(input_file, geojson_file,border_file):
+def main(input_file, geojson_file, border_files):
     # Parse the cleaned HTML file
     with open(input_file, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f, 'html.parser')
 
     features = []
     airspaces = 0
-    border_coords = read_border_geojson(border_file)
     empty_airspaces = 0
     incomplete_airspaces = 0
     skipped_airspaces = 0
     empty_coords = 0
-    points=0
-    segments=0
+    points = 0
+    segments = 0
     not_valid_rings = 0
     # For every table container, process rows in document order to associate parsed rows with the previous parsed name row
     for container_index, container in enumerate(soup.select('.table-container')):
@@ -640,7 +681,7 @@ def main(input_file, geojson_file,border_file):
                 if len(coords) == 0:
                     empty_airspaces += 1
                     continue
-                polygon_points, had_missing = process_coordinates(current_name, coords, border_coords)
+                polygon_points, had_missing = process_coordinates(current_name, coords, border_files)
                 if had_missing:
                     incomplete_airspaces += 1
                     continue
@@ -670,7 +711,7 @@ def main(input_file, geojson_file,border_file):
 
     print(f"[INFO] {airspaces} airspaces encountered")
     print(f"[INFO] Exported {len(features)} features")
-    total_missing =  incomplete_airspaces+skipped_airspaces
+    total_missing =  incomplete_airspaces + skipped_airspaces
     print(f"[INFO] Skipped airspaces (no valid polygon): {skipped_airspaces} of which {empty_coords} empty coords, {points} points, {segments} segments")
     print(f"[INFO] Empty airspaces: {empty_airspaces}")
     print(f"[INFO] Not valid rings: {not_valid_rings}")
@@ -696,9 +737,14 @@ if __name__ == '__main__':
     # Input and output file paths
     input_file = 'eaip_selected_tables_stage1_cleaned.html'
     geojson_file = 'airspace.geojson'
-    border_file = 'France.geojson'
+    border_files = {
+    "france": "France.geojson",
+    "andorra": "Andorre.geojson",
+    "switzerland": "Suisse.geojson"
+}
 
-    main(input_file, geojson_file,border_file)
+
+    main(input_file, geojson_file,border_files)
 
 
 # Invalid coordinate pair format: ['502500N , 0022400E Verticale N41 au Sud-Est de la commune axe 080/260 de 1km de part et dautre du point 502500N,0022400E']
