@@ -3,3 +3,4 @@ aip/
 *.json
 *.txt
 *.geojson
+*.qmd
