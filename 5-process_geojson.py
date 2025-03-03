@@ -16,7 +16,7 @@ def process_geojson(data):
         new_type = None
 
         if ' aéromodélisme ' in name:
-            new_type = "Aéromodélisme"
+            new_type = "aéromodélisme"
         elif name.startswith("LF R"):
             new_type = "Restricted"
         elif name.startswith("TMA "):
@@ -24,9 +24,11 @@ def process_geojson(data):
         elif name.startswith("SIV"):
             new_type = "SIV"
         elif ' treuillage ' in name:
-            new_type = "Treuil"
+            new_type = "treuil"
         elif (' para ' in name) or (' voltige ' in name):
             new_type = "Para/voltige"
+        elif "activité particulière" in name:
+            new_type = "activité_particulière"
         elif "AWY" in name_upper:
             new_type = "AWY"
         elif name.startswith("LF D"):
@@ -55,10 +57,15 @@ def process_geojson(data):
         # Check restrictions field for gliding conditions
         restrictions = props.get('restrictions', '')
         restrictions_lower = restrictions.lower()
-        if 'activité vélivole restreinte' in restrictions_lower or 'activité vélivole régie par protocole' in restrictions_lower:
+        if 'activité vélivole' in restrictions_lower: # or 'activité vélivole régie par protocole' in restrictions_lower:
+            new_type = "gliding"
+        if name.startswith("LTA") and props['icaoClass'] == "E":
             new_type = "gliding"
         if 'survol / overflight' in restrictions_lower :
             new_type = "Park"
+
+        if props.get('code_zsm', ''):
+            new_type = "ZSM"
 
         
         props['type'] = new_type if new_type else "Other"

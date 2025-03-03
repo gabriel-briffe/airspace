@@ -26,7 +26,10 @@ TYPE_MAP_R = {
     "CTA": 26,
     "Para/voltige": 28,
     "ZSM": 29,
-    "SIV": 33
+    "SIV": 33,
+    "aéromodélisme": 34,
+    "treuil": 35,
+    "activité_particulière": 36,
 }
 
 UNIT_MAP_R = {
@@ -43,7 +46,7 @@ REFERENCE_DATUM_MAP_R = {
 
 # For types not in the mapping, assign sequential values starting from 34
 unknown_type_map = {}
-unknown_dynamic_counter = 34
+unknown_dynamic_counter = 40
 
 
 def convert_altitude(ul_array_str):
@@ -94,18 +97,18 @@ def main():
             converted = convert_altitude(props["upperUlArray"])
             if converted:
                 props["upperLimit"] = converted
-            del props["upperUlArray"]
+            # del props["upperUlArray"]
 
         # Convert lower altitude array to openAIP lowerLimit
         if "lowerUlArray" in props:
             converted = convert_altitude(props["lowerUlArray"])
             if converted:
                 props["lowerLimit"] = converted
-            del props["lowerUlArray"]
+            # del props["lowerUlArray"]
 
     # Write the openAIP geojson
     # with open('/Users/gabrielbriffe/code/mountainCircles-map-beta/test2/merged_asp.geojson', 'w') as outfile:
-    with open('airspace_openAIP.geojson', 'w') as outfile:
+    with open('airspace_openAIP_unfiltered.geojson', 'w') as outfile:
         json.dump(data, outfile, indent=2)
 
 

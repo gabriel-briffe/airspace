@@ -845,6 +845,7 @@ def main(input_file, geojson_file, border_files, parks_file):
                     # print(f"[INFO] Found {current_name} in parks data, using coordinates from there")
                     polygon_points = parks_data[current_name]["coordinates"]
                     if len(polygon_points):
+                        current_name = "PARC/RESERVE " + current_name
                         feature = create_geojson_feature(current_name, polygon_points, icao_class, upperAltitude, lowerAltitude, radio, schedule, restrictions, remarks)
                         features.append(feature)
                         continue
@@ -880,6 +881,7 @@ def main(input_file, geojson_file, border_files, parks_file):
                 # if any(token and "frontière" in token.lower() for token in coords if isinstance(token, str)):
                 features.append(feature)
 
+
     print(f"[INFO] {airspaces} airspaces encountered")
     print(f"[INFO] Exported {len(features)} features")
     total_missing =  incomplete_airspaces + skipped_airspaces
@@ -889,6 +891,38 @@ def main(input_file, geojson_file, border_files, parks_file):
     print(f"[INFO] Missing parks: {missing_parks}")
     print(f"[INFO] Airspaces with incomplete processing and not exported: {incomplete_airspaces}")
     print(f"[WARNING] Total missing airspaces: {total_missing} ({airspaces - len(features)} expected)")
+
+    # Insert new code to process zsm.geojson before creating the FeatureCollection
+    zsm = 0
+    try:
+        with open('zsm.geojson', 'r', encoding='utf-8') as zsm_file:
+            zsm_data = json.load(zsm_file)
+        for feature in zsm_data.get('features', []):
+            props = feature.get('properties', {})
+            # Convert _max to int, default to 0 if conversion fails
+            try:
+                upper_alt = str(int(float(props.get('_max', 0)))) + 'ft MSL'
+            except Exception as e:
+                print(f"[ERROR] ZSM Failed to convert _max to int: {e}")
+                upper_alt = '0ft MSL'
+
+            # Keep all existing properties and override the specified ones
+            new_props = props.copy()
+            new_props["name"] = props.get("code_zsm", "")
+            new_props["icaoClass"] = "Other"
+            new_props["upperAltitude"] = upper_alt
+            new_props["lowerAltitude"] = "0ft GND"
+            new_feature = {
+                "type": "Feature",
+                "geometry": feature.get("geometry"),
+                "properties": new_props
+            }
+            features.append(new_feature)
+            zsm += 1
+    except Exception as e:
+        print(f"[ERROR] Failed to process zsm.geojson: {e}")
+
+    print(f"[INFO] ZSM airspaces: {zsm}")
 
     # Create FeatureCollection
     geojson = {
